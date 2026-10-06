@@ -1,0 +1,286 @@
+---
+title: Services
+description: Call the server's services, replace their implementation, and know which ones the server actually uses.
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+A **service** is a Java interface behind which the server keeps part of its behaviour: generating
+a world, saving players, resolving permissions… The service registry maps each interface to one or
+more implementations.
+
+This is what lets a plugin act like a mod: instead of patching the server, it provides its own
+implementation, and the server uses it in place of its own.
+
+## How the registry picks
+
+- Every implementation is registered with a **priority** (`ServicePriority`): `LOWEST`, `LOW`,
+  `NORMAL`, `HIGH` or `HIGHEST`.
+- When you ask for a service, you get the implementation with the **highest priority**. On a tie,
+  the first one registered wins.
+- The server registers its own at `LOWEST`, so any plugin can get ahead of it, even at the default
+  priority (`NORMAL`).
+
+The registry is reached through `ctx.services()` (or `ctx.server().services()`, it is the same
+object).
+
+## Using a service
+
+| Method | Returns |
+| --- | --- |
+| `get(X.class)` | the implementation in use, or throws `IllegalStateException` if there is none. |
+| `find(X.class)` | an `Optional`, empty if there is none. |
+| `findAll(X.class)` | every implementation, from highest to lowest priority. |
+
+**Example: a `/hurt <player> <damage>` command** that goes through the combat service. The service
+applies the real game rules (armour, invulnerability, knockback, events…) instead of changing the
+player's health by hand.
+
+```java title="HurtCommand.java"
+public final class HurtCommand {
+
+    private final ServiceRegistry services;
+
+    public HurtCommand(final ServiceRegistry services) {
+        this.services = services;
+    }
+
+    public LiteralArgumentBuilder<CommandSource> create() {
+        return Commands.literal("hurt")
+                .requires(source -> source.sender().hasPermission("services.hurt"))
+                .then(Commands.argument("target", ArgumentTypes.player())
+                        .then(Commands.argument("damage", ArgumentTypes.floatArg(0.5f, 100f))
+                                .executes(context -> {
+                                    final Player target = context
+                                            .getArgument("target", PlayerSelectorArgumentResolver.class)
+                                            .resolve(context.getSource())
+                                            .getFirst();
+                                    final float damage = context.getArgument("damage", Float.class);
+
+                                    // Ask for the current implementation at the time of the call.
+                                    final CombatService combat = services.get(CombatService.class);
+
+                                    // Commands run on a virtual thread:
+                                    // hop onto the thread of the region that owns the target.
+                                    target.execute(() -> {
+                                        final boolean hit = combat.damage(target, DamageSource.generic(), damage);
+                                        context.getSource().sender().sendMessage(Component.text(
+                                                hit ? target.name() + " took " + damage + " damage."
+                                                    : "The damage was ignored."));
+                                    });
+                                    return Command.SINGLE_SUCCESS;
+                                })));
+    }
+}
+```
+
+Two habits worth picking up:
+
+- **Ask for the service when you use it**, rather than storing it in a field at startup. If another
+  plugin replaces it later, you will use the new one.
+- **Call it from the right thread.** Services that touch the world or entities, such as
+  `CombatService`, do not switch threads for you. Hence the `target.execute(...)`.
+
+## Replacing a service
+
+To replace a service, register your own implementation, with your plugin as its **owner**:
+
+```java
+ctx.services().register(WorldGenerator.class, new CheckerboardGenerator(), this);
+// or with an explicit priority:
+ctx.services().register(WorldGenerator.class, new CheckerboardGenerator(), this, ServicePriority.HIGH);
+```
+
+The owner (`this`, your `Plugin` instance) lets the server remove your implementations on its own
+when the plugin is disabled.
+
+### Example 1: a world generator
+
+By default the server generates a flat world (16 layers of cobblestone). This generator makes a
+flat world whose surface alternates between grass and stone, one chunk out of two:
+
+```java title="CheckerboardGenerator.java"
+public final class CheckerboardGenerator implements WorldGenerator {
+
+    private static final Key BEDROCK = BlockTypeKeys.BEDROCK.key();
+    private static final Key DIRT = BlockTypeKeys.DIRT.key();
+    private static final Key GRASS = BlockTypeKeys.GRASS_BLOCK.key();
+    private static final Key STONE = BlockTypeKeys.STONE.key();
+
+    private static final int SURFACE = 64;
+
+    @Override
+    public void generate(final GeneratedChunk chunk) {
+        final boolean grass = ((chunk.chunkX() + chunk.chunkZ()) & 1) == 0;
+        final Key top = grass ? GRASS : STONE;
+
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                chunk.setBlock(x, chunk.minY(), z, BEDROCK);
+                for (int y = chunk.minY() + 1; y < SURFACE; y++) {
+                    chunk.setBlock(x, y, z, DIRT);
+                }
+                chunk.setBlock(x, SURFACE, z, top);
+            }
+        }
+    }
+
+    @Override
+    public GenerationDescriptor describeForSave() {
+        return GenerationDescriptor.unknown();
+    }
+}
+```
+
+In `GeneratedChunk`, X and Z are **local to the chunk** (0 to 15) and Y is **absolute**. The keys
+of every vanilla block are generated in `fr.fidorial.registry.keys.BlockTypeKeys`.
+
+<Aside type="caution" title="Register the generator in onLoad()">
+	Worlds are opened between `onLoad()` and `onEnable()`. A generator registered in `onEnable()` comes
+	too late for the main world. Also note that chunks already generated do not change: only new ones
+	go through your generator.
+</Aside>
+
+`generate` is called **in parallel on the generation threads**: your generator must be thread-safe
+(no mutable state shared between two calls).
+
+To get a separate world rather than replacing the generator of every world, pass the generator
+directly to `ctx.server().createWorld(Key.key("myplugin", "checkerboard"), new CheckerboardGenerator())`.
+
+### Example 2: wrapping the existing implementation
+
+Often you do not want to rewrite everything, only change one detail. Grab the current
+implementation **before** registering yourself, and delegate the rest to it.
+
+Here everyone is put back in survival when they join, but saving is still done by the server:
+
+```java title="ForceSurvival.java"
+public final class ForceSurvival implements PlayerDataStorage {
+
+    private final PlayerDataStorage previous;
+
+    public ForceSurvival(final PlayerDataStorage previous) {
+        this.previous = previous;
+    }
+
+    @Override
+    public PlayerData load(final UUID uuid, final PlayerData defaults) throws IOException {
+        final PlayerData data = previous.load(uuid, defaults);
+        return new PlayerData(
+                GameMode.SURVIVAL,
+                data.respawnWorld(),
+                data.respawnLocation(),
+                data.world(),
+                data.location());
+    }
+
+    @Override
+    public void save(final UUID uuid, final PlayerData data) throws IOException {
+        previous.save(uuid, data);
+    }
+
+    @Override
+    public boolean exists(final UUID uuid) throws IOException {
+        return previous.exists(uuid);
+    }
+}
+```
+
+`load` is called while the player is logging in, `save` on a separate thread when they disconnect.
+Both may do I/O, but must cope with being called from several threads.
+
+### The complete plugin
+
+<Tabs>
+	<TabItem label="ServicesPlugin.java">
+		```java
+		public final class ServicesPlugin implements Plugin {
+
+		    private PluginContext ctx;
+
+		    @Override
+		    public void onLoad(final PluginContext ctx) {
+		        this.ctx = ctx;
+
+		        // The generator must be in place BEFORE worlds are opened, so in onLoad.
+		        ctx.services().register(WorldGenerator.class, new CheckerboardGenerator(), this);
+
+		        // Grab the current implementation before putting ourselves in front of it.
+		        final PlayerDataStorage current = ctx.services().get(PlayerDataStorage.class);
+		        ctx.services().register(PlayerDataStorage.class, new ForceSurvival(current), this, ServicePriority.NORMAL);
+		    }
+
+		    @Override
+		    public void onEnable() {
+		        ctx.server().commands().register(ctx.meta(), new HurtCommand(ctx.services()).create());
+		    }
+
+		    @Override
+		    public void onDisable() {
+		        ctx.server().commands().unregisterNamespace(ctx.meta());
+		        // Services registered with "this" as their owner are removed automatically.
+		    }
+		}
+		```
+	</TabItem>
+	<TabItem label="fidorial.json">
+		```json
+		{
+		  "id": "services",
+		  "name": "Services example",
+		  "version": "1.0.0",
+		  "main": "com.example.services.ServicesPlugin",
+		  "authors": ["you"],
+		  "permissions": {
+		    "services.hurt": {
+		      "description": "Use /hurt",
+		      "regular": "NOT_SET",
+		      "operator": "TRUE"
+		    }
+		  }
+		}
+		```
+	</TabItem>
+</Tabs>
+
+## Which services the server actually uses
+
+Not every service is wired the same way yet. Some are **read again by the server every time it
+needs them**: replacing them changes its behaviour. Others are registered and **usable** by
+plugins, but the server still calls its own implementation directly.
+
+### Replaceable
+
+| Service | Purpose | Default |
+| --- | --- | --- |
+| `world.generation.WorldGenerator` | Fills new chunks of worlds created without an explicit generator. | none: flat cobblestone world |
+| `storage.player.PlayerDataStorage` | Game mode, respawn point and last position of players. | NBT files |
+| `storage.player.PlayerInventoryStorage` | Player inventories. | NBT files |
+| `storage.player.PlayerEnderChestStorage` | Player ender chests. | NBT files |
+| `permission.PermissionResolver` | Decides a permission before the default rules. Useful to plug in a real permission manager. | none |
+
+### Usable, but not replaceable yet
+
+These services are registered by the server, and `get(...)` does return the server's
+implementation. But if you register your own, **the server will keep using its own** for now:
+
+`combat.CombatService`, `world.weather.WeatherManager`, `world.fluid.FluidManager`,
+`permission.PermissionRegistry`, `command.CommandRegistry`, `entity.OfflinePlayers`,
+`moderation.BanManager`, `moderation.WhitelistManager`, `entity.mob.MobRegistry`,
+`world.structure.StructureManager`, `gamerule.GameRules`.
+
+Most of them are also reachable directly from the server: `server().bans()`,
+`server().whitelist()`, `server().permissions()`, `server().commands()`, `server().mobs()`,
+`server().structures()`, `server().gameRules()`… For the weather of a specific world, prefer
+`world.weather()`.
+
+## What about my own services?
+
+Nothing stops you from registering an interface of your own in the registry, and fetching it
+elsewhere in **your** plugin.
+
+<Aside type="caution" title="Not across plugins yet">
+	Each plugin has its own class loader and cannot see other plugins' classes, even ones listed in
+	`depends`. So a service whose interface lives in plugin A cannot be used by plugin B for now. Only
+	API interfaces are shared.
+</Aside>

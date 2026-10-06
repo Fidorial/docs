@@ -1,0 +1,226 @@
+---
+title: Create a plugin
+description: Set up a Gradle project, write fidorial.json and the main class, then load the plugin on a server.
+---
+
+import { Steps, FileTree, Aside } from '@astrojs/starlight/components';
+
+We are going to write **Hello**, a small plugin that greets players when they join and adds a
+`/hello` command. It is deliberately minimal: the point is to see every piece once.
+
+## What you need
+
+- A **JDK 25** or newer. The API is compiled for Java 25; an older JDK cannot read it.
+- **Gradle** (this documentation uses the Kotlin DSL; Maven works too).
+- A **Fidorial server** to test on: download the jar from the
+  [GitHub releases](https://github.com/Euphillya/Fidorial/releases), or build it from source with
+  `./gradlew build` (the jar ends up in `fidorial-server/build/libs/`).
+
+## Project layout
+
+<FileTree>
+- hello/
+  - settings.gradle.kts
+  - build.gradle.kts
+  - src/main/
+    - java/com/example/hello/
+      - **HelloPlugin.java** the main class
+    - resources/
+      - **fidorial.json** the plugin descriptor
+</FileTree>
+
+<Steps>
+
+1. **Add the API dependency.**
+
+   The API is published on Euphyllia's Maven repository. It is `compileOnly`: the server already
+   provides it when it loads your plugin.
+
+   ```kotlin title="settings.gradle.kts"
+   rootProject.name = "hello"
+   ```
+
+   ```kotlin title="build.gradle.kts"
+   plugins {
+       java
+   }
+
+   group = "com.example"
+   version = "1.0.0"
+
+   repositories {
+       mavenCentral()
+       maven("https://repo.euphyllia.moe/repository/maven-public/")
+   }
+
+   dependencies {
+       compileOnly("fr.fidorial:fidorial-api:0.1.0-SNAPSHOT")
+   }
+
+   java {
+       toolchain.languageVersion = JavaLanguageVersion.of(25)
+   }
+   ```
+
+   The API brings [Adventure](https://docs.advntr.dev/) (text, sounds, boss bars), Brigadier
+   (commands), Gson, Guava, fastutil, Configurate, SLF4J and JSpecify along with it. You can use them
+   directly, without declaring or bundling them.
+
+2. **Describe the plugin in `fidorial.json`.**
+
+   This file must sit **at the root of the jar**. In a Gradle project, `src/main/resources/` takes
+   care of that.
+
+   ```json title="src/main/resources/fidorial.json"
+   {
+     "id": "hello",
+     "name": "Hello",
+     "version": "1.0.0",
+     "main": "com.example.hello.HelloPlugin",
+     "authors": ["you"]
+   }
+   ```
+
+   `id`, `name`, `version` and `main` are required. The `id` is also used as the folder name
+   (`plugins/hello/`) and as the command namespace (`/hello:hello`): keep it short, lowercase and
+   without spaces. Every field is described in the [fidorial.json reference](/reference/fidorial-json/).
+
+3. **Write the main class.**
+
+   It implements `fr.fidorial.plugin.Plugin` and needs a public no-argument constructor.
+
+   ```java title="src/main/java/com/example/hello/HelloPlugin.java"
+   package com.example.hello;
+
+   import com.mojang.brigadier.Command;
+   import fr.fidorial.command.Commands;
+   import fr.fidorial.event.player.PlayerJoinEvent;
+   import fr.fidorial.plugin.Plugin;
+   import fr.fidorial.plugin.PluginContext;
+   import net.kyori.adventure.text.Component;
+   import net.kyori.adventure.text.format.NamedTextColor;
+
+   public final class HelloPlugin implements Plugin {
+
+       private PluginContext ctx;
+
+       @Override
+       public void onLoad(final PluginContext ctx) {
+           // Keep the context: it is your handle on the server for the plugin's whole life.
+           this.ctx = ctx;
+           ctx.logger().info("Loaded from {}", ctx.dataFolder());
+       }
+
+       @Override
+       public void onEnable() {
+           // 1. An event: greet every player who joins.
+           ctx.events().subscribe(PlayerJoinEvent.class, event ->
+                   event.player().sendMessage(
+                           Component.text("Hello " + event.player().name() + "!", NamedTextColor.GOLD)));
+
+           // 2. A command: /hello (and /hello:hello).
+           ctx.server().commands().register(ctx.meta(), Commands.literal("hello")
+                   .executes(context -> {
+                       context.getSource().sender().sendMessage(Component.text("Hello to you!"));
+                       return Command.SINGLE_SUCCESS;
+                   }));
+
+           ctx.logger().info("Hello is ready.");
+       }
+
+       @Override
+       public void onDisable() {
+           // Commands are not removed automatically.
+           ctx.server().commands().unregisterNamespace(ctx.meta());
+       }
+   }
+   ```
+
+4. **Build and install.**
+
+   ```sh
+   ./gradlew build
+   ```
+
+   Copy `build/libs/hello-1.0.0.jar` into the server's `plugins/` folder, then start it. Among the
+   console output you should see:
+
+   ```txt
+   1 plugin(s) loaded
+   Plugin enabled: Hello v1.0.0
+   ```
+
+   Join the server: the welcome message shows up, and `/hello` answers.
+
+</Steps>
+
+## The lifecycle
+
+The server calls the three methods of `Plugin` in this order, once each:
+
+| Method | When | What goes there |
+| --- | --- | --- |
+| `onLoad(ctx)` | Right after the plugin is instantiated, **before worlds are opened**. | Keep the context. Register anything that must exist before worlds: a world generator, biomes, dimension types. |
+| `onEnable()` | Once every plugin is loaded and worlds are open, in dependency order. | Subscribe to events, register commands. |
+| `onDisable()` | When the server stops, or if the plugin is removed. | Release what the server does not release on its own (see below). |
+
+If `onLoad` or `onEnable` throws, the plugin is disabled and what it registered is removed. The
+server keeps starting without it.
+
+### What is cleaned up for you, and what is not
+
+After `onDisable()`, the server automatically removes:
+
+- **event subscriptions** made during `onLoad` or `onEnable` (see
+  [the catch](/guides/events/#unsubscribing));
+- **services** registered with your plugin as their owner;
+- **permissions** declared in `fidorial.json`.
+
+It does **not** remove:
+
+- **commands**, which you remove with `commands().unregisterNamespace(ctx.meta())`;
+- what you added to registries (biomes, dialogs, dimension types, mobs…);
+- your own threads and executors.
+
+## The plugin context
+
+`PluginContext` is everything the server hands you:
+
+| Method | Purpose |
+| --- | --- |
+| `meta()` | The content of your `fidorial.json`. |
+| `server()` | The server: players, worlds, commands, permissions, registries… |
+| `events()` | The event bus ([guide](/guides/events/)). |
+| `services()` | The service registry ([guide](/guides/services/)). |
+| `logger()` | A logger named `plugin/<id>`, which accepts Adventure `Component`s. |
+| `dataFolder()` | The `plugins/<id>/` folder, created if missing. |
+| `resource(path)` | A file bundled in your jar, or `null` if there is none. Remember to close the stream. |
+
+## FAQ
+
+### Do I need a `module-info.java`?
+
+No, and the simplest is not to have one. The server loads every plugin on the classpath, in a class
+loader of its own: a `module-info.java` would be ignored at runtime.
+
+If you want one anyway, it has to list every module you use (`requires fr.fidorial;`,
+`requires net.kyori.adventure.api;`…), because the API does not make them transitive. And since
+Brigadier is not a named module, you will need to compile with
+`--add-reads <your.module>=ALL-UNNAMED`. That is what the test plugin in the repository does.
+
+### What if my plugin uses another library?
+
+Anything that is not part of the API has to be **bundled in your jar**, for instance with the
+[Shadow](https://gradleup.com/shadow/) Gradle plugin. Each plugin has its own class loader and looks
+in its own jar first, so two plugins can bundle two different versions of the same library without
+getting in each other's way.
+
+<Aside type="note">
+	Libraries provided by the API (Adventure, Gson, Guava…) **always** come from the server, even if
+	your jar contains a copy. There is no point bundling them.
+</Aside>
+
+### Where are my plugin's logs?
+
+In the server console and logs, prefixed with `plugin/<id>`. Use `ctx.logger()` rather than
+`System.out`.

@@ -1,0 +1,227 @@
+---
+title: Créer un plugin
+description: Monter un projet Gradle, écrire fidorial.json et la classe principale, puis charger le plugin sur un serveur.
+---
+
+import { Steps, FileTree, Aside } from '@astrojs/starlight/components';
+
+On va écrire **Salut**, un petit plugin qui salue les joueurs à leur arrivée et ajoute une commande
+`/salut`. Il est volontairement minimal : le but est de voir chaque pièce une fois.
+
+## Ce qu'il te faut
+
+- Un **JDK 25** ou plus récent. L'API est compilée pour Java 25, un JDK plus ancien ne pourra pas la lire.
+- **Gradle** (la doc utilise le Kotlin DSL ; Maven marche aussi).
+- Un **serveur Fidorial** pour tester : télécharge le jar depuis les
+  [releases GitHub](https://github.com/Euphillya/Fidorial/releases), ou compile-le depuis les sources
+  avec `./gradlew build` (le jar sort dans `fidorial-server/build/libs/`).
+
+## Structure du projet
+
+<FileTree>
+- salut/
+  - settings.gradle.kts
+  - build.gradle.kts
+  - src/main/
+    - java/com/exemple/salut/
+      - **SalutPlugin.java** la classe principale
+    - resources/
+      - **fidorial.json** la description du plugin
+</FileTree>
+
+<Steps>
+
+1. **Déclare la dépendance à l'API.**
+
+   L'API est publiée sur le dépôt Maven d'Euphyllia. Elle est `compileOnly` : le serveur la fournit
+   déjà au moment où il charge ton plugin.
+
+   ```kotlin title="settings.gradle.kts"
+   rootProject.name = "salut"
+   ```
+
+   ```kotlin title="build.gradle.kts"
+   plugins {
+       java
+   }
+
+   group = "com.exemple"
+   version = "1.0.0"
+
+   repositories {
+       mavenCentral()
+       maven("https://repo.euphyllia.moe/repository/maven-public/")
+   }
+
+   dependencies {
+       compileOnly("fr.fidorial:fidorial-api:0.1.0-SNAPSHOT")
+   }
+
+   java {
+       toolchain.languageVersion = JavaLanguageVersion.of(25)
+   }
+   ```
+
+   L'API apporte avec elle [Adventure](https://docs.advntr.dev/) (texte, sons, boss bars),
+   Brigadier (commandes), Gson, Guava, fastutil, Configurate, SLF4J et JSpecify. Tu peux les
+   utiliser directement, sans les déclarer ni les embarquer.
+
+2. **Décris le plugin dans `fidorial.json`.**
+
+   Ce fichier doit se trouver **à la racine du jar**. Dans un projet Gradle, `src/main/resources/`
+   s'en charge.
+
+   ```json title="src/main/resources/fidorial.json"
+   {
+     "id": "salut",
+     "name": "Salut",
+     "version": "1.0.0",
+     "main": "com.exemple.salut.SalutPlugin",
+     "authors": ["toi"]
+   }
+   ```
+
+   `id`, `name`, `version` et `main` sont obligatoires. L'`id` sert aussi de nom de dossier
+   (`plugins/salut/`) et d'espace de noms pour les commandes (`/salut:salut`) : garde-le court, en
+   minuscules et sans espaces. Tous les champs sont détaillés dans la
+   [référence de fidorial.json](/fr/reference/fidorial-json/).
+
+3. **Écris la classe principale.**
+
+   Elle implémente `fr.fidorial.plugin.Plugin` et doit avoir un constructeur public sans argument.
+
+   ```java title="src/main/java/com/exemple/salut/SalutPlugin.java"
+   package com.exemple.salut;
+
+   import com.mojang.brigadier.Command;
+   import fr.fidorial.command.Commands;
+   import fr.fidorial.event.player.PlayerJoinEvent;
+   import fr.fidorial.plugin.Plugin;
+   import fr.fidorial.plugin.PluginContext;
+   import net.kyori.adventure.text.Component;
+   import net.kyori.adventure.text.format.NamedTextColor;
+
+   public final class SalutPlugin implements Plugin {
+
+       private PluginContext ctx;
+
+       @Override
+       public void onLoad(final PluginContext ctx) {
+           // Garde le contexte : c'est ton accès au serveur pendant toute la vie du plugin.
+           this.ctx = ctx;
+           ctx.logger().info("Chargé depuis {}", ctx.dataFolder());
+       }
+
+       @Override
+       public void onEnable() {
+           // 1. Un événement : saluer chaque joueur qui arrive.
+           ctx.events().subscribe(PlayerJoinEvent.class, event ->
+                   event.player().sendMessage(
+                           Component.text("Salut " + event.player().name() + " !", NamedTextColor.GOLD)));
+
+           // 2. Une commande : /salut (et /salut:salut).
+           ctx.server().commands().register(ctx.meta(), Commands.literal("salut")
+                   .executes(context -> {
+                       context.getSource().sender().sendMessage(Component.text("Salut à toi !"));
+                       return Command.SINGLE_SUCCESS;
+                   }));
+
+           ctx.logger().info("Salut est prêt.");
+       }
+
+       @Override
+       public void onDisable() {
+           // Les commandes ne sont pas retirées automatiquement.
+           ctx.server().commands().unregisterNamespace(ctx.meta());
+       }
+   }
+   ```
+
+4. **Compile et installe.**
+
+   ```sh
+   ./gradlew build
+   ```
+
+   Copie `build/libs/salut-1.0.0.jar` dans le dossier `plugins/` du serveur, puis démarre-le. Tu
+   dois voir passer dans la console :
+
+   ```txt
+   1 plugin(s) loaded
+   Plugin enabled: Salut v1.0.0
+   ```
+
+   Connecte-toi : le message de bienvenue s'affiche, et `/salut` répond.
+
+</Steps>
+
+## Le cycle de vie
+
+Le serveur appelle les trois méthodes de `Plugin` dans cet ordre, une fois chacune :
+
+| Méthode | Quand | Ce qu'on y fait |
+| --- | --- | --- |
+| `onLoad(ctx)` | Juste après l'instanciation, **avant que les mondes soient ouverts**. | Garder le contexte. Enregistrer ce qui doit exister avant les mondes : un générateur de monde, des biomes, des types de dimension. |
+| `onEnable()` | Une fois tous les plugins chargés et les mondes ouverts, dans l'ordre des dépendances. | S'abonner aux événements, enregistrer les commandes. |
+| `onDisable()` | À l'arrêt du serveur, ou si le plugin est retiré. | Libérer ce que le serveur ne libère pas tout seul (voir ci-dessous). |
+
+Si `onLoad` ou `onEnable` lève une exception, le plugin est désactivé et ce qu'il avait enregistré
+est retiré. Le serveur continue de démarrer sans lui.
+
+### Ce qui est nettoyé pour toi, et ce qui ne l'est pas
+
+Après `onDisable()`, le serveur retire automatiquement :
+
+- les **abonnements aux événements** faits pendant `onLoad` ou `onEnable` (voir
+  [la nuance](/fr/guides/events/#se-désabonner)) ;
+- les **services** enregistrés avec ton plugin comme propriétaire ;
+- les **permissions** déclarées dans `fidorial.json`.
+
+Il ne retire **pas** :
+
+- les **commandes**, qu'il faut retirer avec `commands().unregisterNamespace(ctx.meta())` ;
+- ce que tu as ajouté aux registres (biomes, dialogues, types de dimension, mobs…) ;
+- tes propres threads et executors.
+
+## Le contexte du plugin
+
+`PluginContext` est tout ce que le serveur te donne :
+
+| Méthode | Rôle |
+| --- | --- |
+| `meta()` | Le contenu de ton `fidorial.json`. |
+| `server()` | Le serveur : joueurs, mondes, commandes, permissions, registres… |
+| `events()` | Le bus d'événements ([guide](/fr/guides/events/)). |
+| `services()` | Le registre des services ([guide](/fr/guides/services/)). |
+| `logger()` | Un logger nommé `plugin/<id>`, qui accepte des `Component` Adventure. |
+| `dataFolder()` | Le dossier `plugins/<id>/`, créé s'il n'existe pas. |
+| `resource(path)` | Un fichier embarqué dans ton jar, ou `null` s'il n'existe pas. Pense à fermer le flux. |
+
+## Questions fréquentes
+
+### Faut-il un `module-info.java` ?
+
+Non, et le plus simple est de ne pas en mettre. Le serveur charge chaque plugin sur le classpath,
+dans un classloader qui lui est propre : un `module-info.java` serait ignoré à l'exécution.
+
+Si tu en veux un quand même, il devra lister chaque module utilisé (`requires fr.fidorial;`,
+`requires net.kyori.adventure.api;`…), car l'API ne les rend pas transitifs. Et comme Brigadier
+n'est pas un module nommé, il faudra compiler avec `--add-reads <ton.module>=ALL-UNNAMED`. C'est ce
+que fait le plugin de test du dépôt.
+
+### Et si mon plugin utilise une autre bibliothèque ?
+
+Tout ce qui ne fait pas partie de l'API doit être **embarqué dans ton jar**, par exemple avec le
+plugin Gradle [Shadow](https://gradleup.com/shadow/). Chaque plugin a son propre classloader et
+cherche d'abord dans son jar : deux plugins peuvent donc embarquer deux versions différentes d'une
+même bibliothèque sans se gêner.
+
+<Aside type="note">
+	Les bibliothèques fournies par l'API (Adventure, Gson, Guava…) viennent **toujours** du serveur,
+	même si ton jar en contient une copie. Inutile de les embarquer.
+</Aside>
+
+### Où sont les logs de mon plugin ?
+
+Dans la console et les logs du serveur, préfixés par `plugin/<id>`. Utilise `ctx.logger()` plutôt
+que `System.out`.

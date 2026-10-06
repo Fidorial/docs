@@ -1,0 +1,134 @@
+---
+title: Threads et régions
+description: Comprendre le découpage du monde en régions, et exécuter du code sur le bon thread.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+C'est **la** différence avec Paper ou Spigot quand on écrit un plugin Fidorial : il n'y a pas un
+thread principal qui fait tourner tout le monde. Le serveur s'inspire de Folia.
+
+## Le modèle
+
+- Chaque monde est découpé en **régions** de 32×32 chunks par défaut (réglable avec
+  `region-section-shift` dans la configuration du serveur).
+- Chaque région est tickée à **20 TPS**, indépendamment des autres, par un thread du pool
+  `region-workers`.
+- Un bloc ou une entité appartient à **une seule région à la fois**, donc à un seul thread.
+
+D'où deux règles :
+
+1. **Ne modifie un bloc ou une entité que depuis le thread de sa région.**
+2. **Ne bloque jamais un thread de région** : pas d'I/O, pas d'appel réseau, pas d'attente. Une
+   région bloquée, ce sont tous ses joueurs qui lag.
+
+<Aside type="tip">
+	La commande `/tps` (ou `tps` dans la console) affiche la santé de chaque région.
+</Aside>
+
+## Où tourne ton code
+
+| Tu es dans… | Thread |
+| --- | --- |
+| `onLoad`, `onEnable`, `onDisable` | le thread de démarrage ou d'arrêt du serveur |
+| un listener d'événement | celui qui publie l'événement : voir [Événements](/fr/guides/events/#sur-quel-thread-) |
+| une commande | un thread virtuel dédié aux commandes |
+| une tâche passée à `execute(...)` | le thread de la région visée |
+| un `WorldGenerator` | un thread de génération de chunks |
+
+## Exécuter sur le thread d'une entité
+
+Les entités (joueurs compris) et les chunks implémentent `SchedulerSource` :
+
+```java
+joueur.execute(() -> joueur.sendActionBar(Component.text("Coucou")));
+joueur.executeDelayed(() -> joueur.setGameMode(GameMode.SURVIVAL), 100); // dans 5 secondes
+joueur.isOwnedByCurrentThread();                                          // suis-je sur son thread ?
+```
+
+La région est déterminée **au moment où tu planifies la tâche**. Si l'entité a disparu, `execute`
+renvoie `false` et la tâche n'est pas planifiée.
+
+## Exécuter à une position
+
+Pour une position plutôt qu'une entité, on passe par le scheduler du serveur (ou du monde), avec la
+clé du monde et le chunk :
+
+```java
+ctx.events().subscribe(BlockBreakEvent.class, event -> {
+    final World monde = event.world();
+    final BlockPos pos = event.position();
+    // Ici, on est déjà sur le thread de la région qui possède ce bloc.
+
+    // Agir sur le même bloc dans 5 secondes (100 ticks) :
+    monde.scheduler().executeDelayed(monde.key(), pos.chunk(), () ->
+            ctx.logger().info("Bloc en {} : {}", pos, monde.blockKeyAt(pos)), 100);
+});
+```
+
+| Méthode de `RegionizedScheduler` | Rôle |
+| --- | --- |
+| `execute(monde, chunk, tâche)` | dès que possible, sur le thread de la région |
+| `executeDelayed(monde, chunk, tâche, ticks)` | après au moins `ticks` ticks |
+| `isOwnedByCurrentThread(monde, chunk)` | savoir si on est déjà sur le bon thread |
+| `tpsSnapshots()` | TPS et ms/tick de chaque région, de la pire à la meilleure |
+
+## Répéter une tâche
+
+Il n'y a pas de tâche répétée toute faite : une tâche se replanifie elle-même. Par exemple, pour
+afficher la position d'un joueur chaque seconde :
+
+```java
+private volatile boolean actif;
+
+private void chaqueSeconde(final Player joueur) {
+    joueur.executeDelayed(() -> {
+        if (!actif || joueur.isRemoved()) {
+            return; // le plugin est arrêté, ou le joueur est parti : on ne replanifie pas
+        }
+        joueur.sendActionBar(Component.text("Position : " + joueur.location().blockPos()));
+        chaqueSeconde(joueur);
+    }, 20);
+}
+```
+
+<Aside type="caution">
+	Les tâches planifiées ne sont pas rattachées à ton plugin et ne sont pas annulées quand il
+	s'arrête. Passe `actif` à `true` dans `onEnable()` et à `false` dans `onDisable()`, et vérifie-le
+	dans la tâche, comme ci-dessus.
+</Aside>
+
+## Le travail long
+
+Le serveur ne fournit pas de pool « async » pour les plugins. Pour une lecture de fichier, une
+requête HTTP ou une base de données, utilise **ton propre executor**, puis reviens sur le bon
+thread avec `execute(...)` pour appliquer le résultat :
+
+```java
+private ExecutorService io;
+
+@Override
+public void onEnable() {
+    actif = true;
+    io = Executors.newVirtualThreadPerTaskExecutor();
+
+    ctx.events().subscribe(PlayerJoinEvent.class, event -> {
+        final Player joueur = event.player();
+
+        // Travail long : hors du thread de région, puis retour sur le thread du joueur.
+        CompletableFuture
+                .supplyAsync(() -> lireStats(joueur.uuid()), io)
+                .thenAccept(stats -> joueur.execute(() ->
+                        joueur.sendMessage(Component.text("Tes stats : " + stats))));
+    });
+}
+
+@Override
+public void onDisable() {
+    actif = false;
+    io.shutdown();
+}
+```
+
+Plusieurs méthodes de l'API renvoient déjà un `CompletableFuture` pour la même raison :
+`world.chunkAsync(...)`, `entity.teleport(...)`, `player.respawn()`…

@@ -1,40 +1,79 @@
 ---
-title: Welcome to Starlight
-description: Get started building your docs site with Starlight.
-template: splash # Remove or comment out this line to display the site sidebar on this page.
+title: Fidorial documentation
+description: Writing plugins for Fidorial, a Minecraft server written from scratch in Java.
+template: splash
 hero:
-  tagline: Congrats on setting up a new Starlight project!
-  image:
-    file: ../../assets/houston.webp
+  title: Fidorial
+  tagline: A Minecraft server written from scratch in Java. This is where you learn to change it with plugins.
   actions:
-    - text: Example Guide
-      link: /guides/example/
+    - text: Create a plugin
+      link: /getting-started/first-plugin/
       icon: right-arrow
-    - text: Read the Starlight docs
-      link: https://starlight.astro.build
+    - text: Javadoc
+      link: https://javadocs.fidorial.moe
       icon: external
       variant: minimal
 ---
 
-import { Card, CardGrid } from '@astrojs/starlight/components';
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-## Next steps
+:::caution[Early stage]
+The plugin API is still changing. This documentation follows the **dev/26.3** branch
+(Minecraft 26.3, API `0.1.0-SNAPSHOT`) and may lag a little behind the code.
+:::
 
-<CardGrid stagger>
-	<Card title="Update content" icon="pencil">
-		Edit `src/content/docs/index.mdx` to see this page change.
+## Two ideas to keep in mind
+
+Fidorial has no Forge, no Fabric and no Mixin. A plugin acts on the server in two ways:
+
+<CardGrid>
+	<Card title="It listens to events" icon="random">
+		A player breaks a block, sends a message, joins the server… The plugin is told about it and
+		can change or cancel the action.
 	</Card>
-	<Card title="Change page layout" icon="document">
-		Delete `template: splash` in `src/content/docs/index.mdx` to display a
-		sidebar on this page.
-	</Card>
-	<Card title="Add new content" icon="add-document">
-		Add Markdown or MDX files to `src/content/docs` to create new pages.
-	</Card>
-	<Card title="Configure your site" icon="setting">
-		Edit your `sidebar` and other config in `astro.config.mjs`.
-	</Card>
-	<Card title="Read the docs" icon="open-book">
-		Learn more in [the Starlight Docs](https://starlight.astro.build/).
+	<Card title="It replaces services" icon="puzzle">
+		Some parts of the server (world generation, player storage…) are interfaces. A plugin can
+		provide its own implementation.
 	</Card>
 </CardGrid>
+
+The world is split into **regions** of 32×32 chunks, each ticked on its own. This is what makes the
+server multithreaded, and it is the main difference from Paper or Spigot when writing a plugin: see
+[Threads and regions](/guides/threads/).
+
+## Where to start
+
+<CardGrid>
+	<LinkCard
+		title="Create a plugin"
+		description="Gradle project, fidorial.json, main class: your first plugin from start to finish."
+		href="/getting-started/first-plugin/"
+	/>
+	<LinkCard
+		title="Listen to events"
+		description="Subscribe, pick a priority, cancel an action."
+		href="/guides/events/"
+	/>
+	<LinkCard
+		title="Use services"
+		description="Call a server service, or replace its implementation."
+		href="/guides/services/"
+	/>
+	<LinkCard
+		title="Threads and regions"
+		description="Which thread your code runs on, and how to switch threads safely."
+		href="/guides/threads/"
+	/>
+</CardGrid>
+
+## Useful links
+
+- **Source code**: [github.com/Euphillya/Fidorial](https://github.com/Euphillya/Fidorial)
+- **Server builds**: [GitHub releases](https://github.com/Euphillya/Fidorial/releases) (a prerelease on every push to the development branch)
+- **API Javadoc**: [javadocs.fidorial.moe](https://javadocs.fidorial.moe)
+- **Chat**: [Discord](https://discord.gg/uUJQEB7XNN)
+
+<small>
+	Fidorial is an independent project, not affiliated with Mojang Studios or Microsoft. Minecraft is
+	a trademark of Mojang Studios.
+</small>

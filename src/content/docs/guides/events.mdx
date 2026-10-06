@@ -1,0 +1,185 @@
+---
+title: Events
+description: Subscribe to server events, pick a priority, change or cancel an action.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+An event is an object the server posts when something happens: a block is broken, a player talks,
+the server starts… A plugin subscribes to be told about it, and sometimes to change what is about
+to happen.
+
+## Subscribing
+
+Subscribe with `ctx.events().subscribe(Type.class, listener)`, usually in `onEnable()`:
+
+```java
+ctx.events().subscribe(PlayerJoinEvent.class, event ->
+        ctx.logger().info("{} just joined", event.player().name()));
+```
+
+The listener is called every time the event is posted. `subscribe` returns a `Subscription`,
+useful to [unsubscribe](#unsubscribing) later.
+
+## Cancelling an action
+
+Events that implement `Cancellable` describe an action **that has not happened yet**. If the event
+is cancelled, the server does not perform the action:
+
+```java
+ctx.events().subscribe(BlockBreakEvent.class, EventPriority.HIGH, event -> {
+    if (event.position().y() < 0) {
+        event.setCancelled(true);
+        event.player().sendMessage(Component.text("Not below layer 0!", NamedTextColor.RED));
+    }
+});
+```
+
+Here the block stays in place and the client is resynchronised. No packet goes to other players,
+nothing is written to disk, and no fluid update happens.
+
+<Aside type="note">
+	Cancelling an event does not stop it from being delivered: the following listeners are still
+	called and may "un-cancel" it with `setCancelled(false)`. The server only checks the flag once
+	every listener has run.
+</Aside>
+
+## Changing an event
+
+Some events have setters. For instance, you can rewrite a chat message before it is broadcast:
+
+```java
+ctx.events().subscribe(PlayerChatEvent.class, event -> {
+    final String text = PlainTextComponentSerializer.plainText().serialize(event.message());
+    if (text.contains("forbidden word")) {
+        event.setCancelled(true);
+        return;
+    }
+    event.setMessage(event.message().color(NamedTextColor.AQUA));
+});
+```
+
+## Priorities
+
+When several listeners observe the same event, they are called from `LOWEST` to `MONITOR`:
+
+| Priority | Use |
+| --- | --- |
+| `LOWEST`, `LOW` | Go first, and let others override your decision. |
+| `NORMAL` | The default. |
+| `HIGH`, `HIGHEST` | Go after the others, so you get the last word. |
+| `MONITOR` | Observe the final outcome. **Never change the event** at this priority. |
+
+A `MONITOR` listener is typically used for logging or statistics:
+
+```java
+ctx.events().subscribe(BlockPlaceEvent.class, EventPriority.MONITOR, event -> {
+    if (!event.isCancelled()) {
+        ctx.logger().info("{} placed a block at {}", event.player().name(), event.position());
+    }
+});
+```
+
+## Listening to a whole family
+
+Subscribing to a type also means receiving **all of its subtypes**. Every player-related event
+implements `PlayerEvent`:
+
+```java
+ctx.events().subscribe(PlayerEvent.class, event ->
+        ctx.logger().debug("{}: {}", event.getClass().getSimpleName(), event.player().name()));
+```
+
+Likewise, `PlayerSignedChatEvent` extends `PlayerChatEvent`, so a listener on `PlayerChatEvent`
+sees signed messages as well as the others.
+
+## Which thread?
+
+The listener runs **on the thread that posts the event**, synchronously. Depending on the event,
+that is not the same thread:
+
+- `BlockBreakEvent`, `BlockPlaceEvent` and `PlayerJoinEvent` are posted on the **thread of the
+  region** that owns the block or the player;
+- chat, login, the server list ping and, for now, player attacks (`PlayerAttackEntityEvent` and the
+  damage that follows) go through **network threads**;
+- `ServerStartedEvent` and `ServerStoppingEvent` are posted by the thread that starts or stops the
+  server.
+
+For the others, assume nothing.
+
+In every case: **never block a listener** (no I/O, no waiting). To act on a player or an entity
+from another thread, go through `player.execute(...)`. It is all explained in
+[Threads and regions](/guides/threads/).
+
+If a listener throws, the exception is logged with the plugin's name and the other listeners are
+still called.
+
+## Unsubscribing
+
+When the plugin is disabled, the server automatically removes the subscriptions made **during
+`onLoad()` or `onEnable()`**. That is the usual case.
+
+<Aside type="caution" title="Subscriptions made later">
+	A subscription made anywhere else (in a command, a scheduled task, another listener…) is not tied
+	to your plugin and **will not be removed automatically**. Keep the `Subscription` and close it
+	yourself in `onDisable()`.
+</Aside>
+
+```java
+private Subscription spy;
+
+// anywhere:
+spy = ctx.events().subscribe(PlayerChatEvent.class, event -> { /* ... */ });
+
+@Override
+public void onDisable() {
+    spy.unsubscribe(); // or spy.close()
+}
+```
+
+## Refusing a connection
+
+`PlayerLoginAttemptEvent` is cancellable, but `refuse(...)` is better: it cancels **and** gives the
+player a reason:
+
+```java
+ctx.events().subscribe(PlayerLoginAttemptEvent.class, event -> {
+    if (event.profile().name().startsWith("Bot")) {
+        event.refuse(Component.text("Bots are not welcome here."));
+    }
+});
+```
+
+A banned player, or one missing from the whitelist, arrives already refused in the event. A
+listener can let them in with `setCancelled(false)`.
+
+## Event list
+
+All events live in `fr.fidorial.event` and its subpackages.
+
+| Event | Cancellable | Posted when… |
+| --- | :---: | --- |
+| `server.ServerStartedEvent` | | the server has finished starting (worlds loaded, plugins enabled, network open). |
+| `server.ServerStoppingEvent` | | the server starts shutting down, before players are kicked. |
+| `server.ServerStatusRequestEvent` | | a client asks for the status shown in the server list. |
+| `server.GameRuleChangeEvent` | ✔ | right before a game rule changes. |
+| `player.PlayerLoginAttemptEvent` | ✔ | a client tries to log in. |
+| `player.PlayerJoinEvent` | | a player has entered the world. |
+| `player.PlayerQuitEvent` | | a player leaves the world. |
+| `player.PlayerChatEvent` | ✔ | a player sends a message, before it is broadcast. |
+| `player.PlayerSignedChatEvent` | ✔ | same, for a message signed by the client (subtype of the previous one). |
+| `block.BlockBreakEvent` | ✔ | a player breaks a block, before it is removed. |
+| `block.BlockPlaceEvent` | ✔ | a player places a block, before it is written to the world. |
+| `player.PlayerAttackEntityEvent` | ✔ | a player hits an entity, before damage. |
+| `entity.EntityDamageEvent` | ✔ | an entity is about to take damage, before armour and knockback. |
+| `entity.EntityDeathEvent` | | an entity dies. |
+| `player.PlayerDeathEvent` | | a player dies (subtype of the previous one). |
+| `player.PlayerRespawnEvent` | | a dead player clicks "Respawn". |
+| `player.PlayerOpenEnderChestEvent` | ✔ | a player is about to open an ender chest. |
+| `player.PlayerDialogActionEvent` | | a player clicks a dialog button with a custom action. |
+| `player.PlayerPostEffectsModifyEvent` | ✔ | a player's post effects are about to change. |
+
+<Aside type="caution">
+	`PlayerMoveEvent` exists in the API but **is not posted by the server yet**: subscribing to it has
+	no effect for now.
+</Aside>

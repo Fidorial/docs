@@ -1,0 +1,79 @@
+---
+title: Documentation de Fidorial
+description: Écrire des plugins pour Fidorial, un serveur Minecraft écrit de zéro en Java.
+template: splash
+hero:
+  title: Fidorial
+  tagline: Un serveur Minecraft écrit de zéro en Java. Ici, on apprend à le modifier avec des plugins.
+  actions:
+    - text: Créer un plugin
+      link: /fr/getting-started/first-plugin/
+      icon: right-arrow
+    - text: Javadoc
+      link: https://javadocs.fidorial.moe
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+
+:::caution[Projet à ses débuts]
+L'API de plugins change encore. Cette documentation suit la branche **dev/26.3**
+(Minecraft 26.3, API `0.1.0-SNAPSHOT`) et peut avoir un temps de retard sur le code.
+:::
+
+## Deux idées à retenir
+
+Fidorial n'utilise ni Forge, ni Fabric, ni Mixin. Un plugin agit sur le serveur de deux façons :
+
+<CardGrid>
+	<Card title="Il écoute des événements" icon="random">
+		Un joueur casse un bloc, envoie un message, rejoint le serveur… Le plugin est prévenu et peut
+		modifier ou annuler l'action.
+	</Card>
+	<Card title="Il remplace des services" icon="puzzle">
+		Certaines parties du serveur (génération du monde, sauvegarde des joueurs…) sont des
+		interfaces. Un plugin peut fournir sa propre implémentation.
+	</Card>
+</CardGrid>
+
+Le monde est découpé en **régions** de 32×32 chunks, chacune avec son propre thread. C'est ce qui
+rend le serveur multithread, et c'est la principale différence avec Paper ou Spigot quand on écrit
+un plugin : voir [Threads et régions](/fr/guides/threads/).
+
+## Par où commencer
+
+<CardGrid>
+	<LinkCard
+		title="Créer un plugin"
+		description="Projet Gradle, fidorial.json, classe principale : ton premier plugin de bout en bout."
+		href="/fr/getting-started/first-plugin/"
+	/>
+	<LinkCard
+		title="Écouter des événements"
+		description="S'abonner, choisir une priorité, annuler une action."
+		href="/fr/guides/events/"
+	/>
+	<LinkCard
+		title="Utiliser les services"
+		description="Appeler un service du serveur, ou remplacer son implémentation."
+		href="/fr/guides/services/"
+	/>
+	<LinkCard
+		title="Threads et régions"
+		description="Sur quel thread tourne ton code, et comment changer de thread proprement."
+		href="/fr/guides/threads/"
+	/>
+</CardGrid>
+
+## Liens utiles
+
+- **Code source** : [github.com/Euphillya/Fidorial](https://github.com/Euphillya/Fidorial)
+- **Builds du serveur** : [releases GitHub](https://github.com/Euphillya/Fidorial/releases) (une prerelease à chaque push sur la branche de développement)
+- **Javadoc de l'API** : [javadocs.fidorial.moe](https://javadocs.fidorial.moe)
+- **Discussion** : [Discord](https://discord.gg/uUJQEB7XNN)
+
+<small>
+	Fidorial est un projet indépendant, non affilié à Mojang Studios ni à Microsoft. Minecraft est
+	une marque de Mojang Studios.
+</small>

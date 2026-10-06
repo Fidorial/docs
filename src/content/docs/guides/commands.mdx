@@ -1,0 +1,146 @@
+---
+title: Commands
+description: Declare Brigadier commands, with arguments, permissions and aliases.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Fidorial commands use [Brigadier](https://github.com/Mojang/brigadier), Mojang's library. The client
+receives the command tree, so completion and highlighting work with no extra effort.
+
+## Declaring a command
+
+Build the tree with `Commands.literal(...)` and `Commands.argument(...)`, then register it with
+`ctx.server().commands().register(...)`:
+
+```java
+ctx.server().commands().register(ctx.meta(), Commands.literal("announce")
+        .requires(source -> source.sender().hasPermission("commands.announce"))
+        .then(Commands.argument("message", ArgumentTypes.greedyString())
+                .executes(context -> {
+                    final String message = context.getArgument("message", String.class);
+                    // Server is an Audience: sending to the server sends to every player.
+                    context.getSource().server().sendMessage(
+                            Component.text("[Announcement] " + message, NamedTextColor.YELLOW));
+                    return Command.SINGLE_SUCCESS;
+                })), Set.of("ann"));
+```
+
+- Passing `ctx.meta()` files the command under your plugin's **id**. It answers to `/announce` and
+  `/commands:announce`.
+- The last, optional parameter adds **aliases** (here `/ann`).
+- `executes` returns an integer: `Command.SINGLE_SUCCESS` (1) if the command worked, `0` otherwise.
+
+## The command source
+
+`context.getSource()` is a `CommandSource`:
+
+| Method | Content |
+| --- | --- |
+| `sender()` | Who typed the command: a `Player`, or the console. It is an Adventure `Audience`. |
+| `executor()` | The entity running the command, which may differ from the `sender` (with `/execute as`, for instance). `null` for the console. |
+| `location()` | Where the command is run. |
+| `server()` | The server. |
+
+For a players-only command:
+
+```java
+if (!(context.getSource().sender() instanceof final Player player)) {
+    context.getSource().sender().sendMessage(Component.text("Players only."));
+    return 0;
+}
+```
+
+## Arguments
+
+`fr.fidorial.command.argument.ArgumentTypes` gathers the argument types the client understands. A
+few of them:
+
+| Method | Type you get back |
+| --- | --- |
+| `word()`, `string()`, `greedyString()` | `String` |
+| `integer()`, `integer(min, max)`, `doubleArg()`, `floatArg()`… | the matching number |
+| `bool()` | `Boolean` |
+| `player()`, `players()` | `PlayerSelectorArgumentResolver` (accepts selectors such as `@p`, `@a`…) |
+| `entity()`, `entities()` | `EntitySelectorArgumentResolver` |
+| `blockPosition()` | `BlockPosResolver` (accepts `~ ~1 ~`) |
+| `world()` | `World` |
+| `gameMode()` | `GameMode` |
+| `key()` | `Key` |
+| `component()` | `Component` (JSON) |
+
+**Resolvers** are resolved against the command source:
+
+```java
+final Player target = context
+        .getArgument("target", PlayerSelectorArgumentResolver.class)
+        .resolve(context.getSource())
+        .getFirst();
+```
+
+## Permissions
+
+`requires(...)` hides the command from anyone who does not meet the condition: it does not even
+show up in completion. With a permission:
+
+```java
+.requires(source -> source.sender().hasPermission("commands.announce"))
+```
+
+<Aside type="caution" title="Declare your permissions">
+	A permission nobody declared is **denied** to everyone, operators and console included. So declare
+	your nodes in `fidorial.json`, saying who holds them by default:
+
+	```json
+	"permissions": {
+	  "commands.announce": {
+	    "description": "Make an announcement to the whole server",
+	    "regular": "NOT_SET",
+	    "operator": "TRUE"
+	  }
+	}
+	```
+
+	See the [fidorial.json reference](/reference/fidorial-json/#permissions).
+</Aside>
+
+## Commands do not run on the player's thread
+
+Every command runs on a separate **virtual thread**, not on the thread of the player's region.
+Reading information or sending a message is fine. To **change** the player or the world, hop onto
+the right thread with `execute(...)`:
+
+```java
+private int up(final CommandContext<CommandSource> context, final int blocks) {
+    if (!(context.getSource().sender() instanceof final Player player)) {
+        context.getSource().sender().sendMessage(Component.text("Players only."));
+        return 0;
+    }
+    // Commands run on a virtual thread: hop back onto the player's thread.
+    player.execute(() -> {
+        final Location here = player.location();
+        player.teleport(here.x(), here.y() + blocks, here.z());
+    });
+    return Command.SINGLE_SUCCESS;
+}
+```
+
+```java
+ctx.server().commands().register(ctx.meta(), Commands.literal("up")
+        .executes(context -> up(context, 10))
+        .then(Commands.argument("blocks", ArgumentTypes.integer(1, 100))
+                .executes(context -> up(context, context.getArgument("blocks", Integer.class)))));
+```
+
+More details in [Threads and regions](/guides/threads/).
+
+## Removing your commands
+
+Commands are **not removed automatically** when the plugin stops. Do it in `onDisable()`:
+
+```java
+@Override
+public void onDisable() {
+    ctx.server().commands().unregisterNamespace(ctx.meta());
+}
+```

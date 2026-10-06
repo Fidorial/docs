@@ -1,0 +1,288 @@
+---
+title: Services
+description: Appeler les services du serveur, remplacer leur implémentation, et savoir lesquels le serveur utilise vraiment.
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Un **service** est une interface Java derrière laquelle le serveur range une partie de son
+comportement : générer un monde, sauvegarder les joueurs, résoudre les permissions… Le registre
+des services associe chaque interface à une ou plusieurs implémentations.
+
+C'est ce qui permet à un plugin de jouer le rôle d'un mod : au lieu de patcher le serveur, il
+fournit sa propre implémentation, et le serveur s'en sert à la place de la sienne.
+
+## Comment le registre choisit
+
+- Chaque implémentation est enregistrée avec une **priorité** (`ServicePriority`) : `LOWEST`, `LOW`,
+  `NORMAL`, `HIGH` ou `HIGHEST`.
+- Quand on demande un service, on obtient l'implémentation de **plus haute priorité**. À priorité
+  égale, la première enregistrée gagne.
+- Le serveur enregistre les siennes en `LOWEST`. N'importe quel plugin peut donc passer devant,
+  même à la priorité par défaut (`NORMAL`).
+
+On accède au registre par `ctx.services()` (ou `ctx.server().services()`, c'est le même objet).
+
+## Utiliser un service
+
+| Méthode | Renvoie |
+| --- | --- |
+| `get(X.class)` | l'implémentation en place, ou lève `IllegalStateException` s'il n'y en a aucune. |
+| `find(X.class)` | un `Optional`, vide s'il n'y en a aucune. |
+| `findAll(X.class)` | toutes les implémentations, de la plus prioritaire à la moins prioritaire. |
+
+**Exemple : une commande `/blesser <joueur> <dégâts>`** qui passe par le service de combat. Le
+service applique les vraies règles du jeu (armure, invulnérabilité, knockback, événements…) au lieu
+de modifier la vie du joueur à la main.
+
+```java title="BlesserCommande.java"
+public final class BlesserCommande {
+
+    private final ServiceRegistry services;
+
+    public BlesserCommande(final ServiceRegistry services) {
+        this.services = services;
+    }
+
+    public LiteralArgumentBuilder<CommandSource> create() {
+        return Commands.literal("blesser")
+                .requires(source -> source.sender().hasPermission("services.blesser"))
+                .then(Commands.argument("cible", ArgumentTypes.player())
+                        .then(Commands.argument("degats", ArgumentTypes.floatArg(0.5f, 100f))
+                                .executes(context -> {
+                                    final Player cible = context
+                                            .getArgument("cible", PlayerSelectorArgumentResolver.class)
+                                            .resolve(context.getSource())
+                                            .getFirst();
+                                    final float degats = context.getArgument("degats", Float.class);
+
+                                    // On demande l'implémentation en cours au moment de l'appel.
+                                    final CombatService combat = services.get(CombatService.class);
+
+                                    // Les commandes tournent sur un thread virtuel :
+                                    // on repasse sur le thread de la région qui possède la cible.
+                                    cible.execute(() -> {
+                                        final boolean touche = combat.damage(cible, DamageSource.generic(), degats);
+                                        context.getSource().sender().sendMessage(Component.text(
+                                                touche ? cible.name() + " a pris " + degats + " dégâts."
+                                                       : "Les dégâts ont été ignorés."));
+                                    });
+                                    return Command.SINGLE_SUCCESS;
+                                })));
+    }
+}
+```
+
+Deux habitudes à prendre :
+
+- **Demande le service au moment de t'en servir**, plutôt que de le garder dans un champ au
+  démarrage. Si un autre plugin le remplace plus tard, tu utiliseras bien le nouveau.
+- **Appelle-le depuis le bon thread.** Les services qui touchent au monde ou aux entités, comme
+  `CombatService`, ne changent pas de thread pour toi. D'où le `cible.execute(...)`.
+
+## Remplacer un service
+
+Pour remplacer un service, on enregistre sa propre implémentation, avec le plugin comme
+**propriétaire** :
+
+```java
+ctx.services().register(WorldGenerator.class, new GenerateurDamier(), this);
+// ou avec une priorité explicite :
+ctx.services().register(WorldGenerator.class, new GenerateurDamier(), this, ServicePriority.HIGH);
+```
+
+Le propriétaire (`this`, ton instance de `Plugin`) permet au serveur de retirer tout seul tes
+implémentations quand le plugin est désactivé.
+
+### Exemple 1 : un générateur de monde
+
+Le serveur génère par défaut un monde plat (16 couches de cobblestone). Ce générateur-ci fait un
+monde plat dont la surface alterne herbe et pierre, un chunk sur deux :
+
+```java title="GenerateurDamier.java"
+public final class GenerateurDamier implements WorldGenerator {
+
+    private static final Key BEDROCK = BlockTypeKeys.BEDROCK.key();
+    private static final Key DIRT = BlockTypeKeys.DIRT.key();
+    private static final Key GRASS = BlockTypeKeys.GRASS_BLOCK.key();
+    private static final Key STONE = BlockTypeKeys.STONE.key();
+
+    private static final int SURFACE = 64;
+
+    @Override
+    public void generate(final GeneratedChunk chunk) {
+        final boolean herbe = ((chunk.chunkX() + chunk.chunkZ()) & 1) == 0;
+        final Key dessus = herbe ? GRASS : STONE;
+
+        for (int x = 0; x < 16; x++) {
+            for (int z = 0; z < 16; z++) {
+                chunk.setBlock(x, chunk.minY(), z, BEDROCK);
+                for (int y = chunk.minY() + 1; y < SURFACE; y++) {
+                    chunk.setBlock(x, y, z, DIRT);
+                }
+                chunk.setBlock(x, SURFACE, z, dessus);
+            }
+        }
+    }
+
+    @Override
+    public GenerationDescriptor describeForSave() {
+        return GenerationDescriptor.unknown();
+    }
+}
+```
+
+Dans `GeneratedChunk`, X et Z sont **locaux au chunk** (0 à 15) et Y est **absolu**. Les clés de
+tous les blocs vanilla sont générées dans `fr.fidorial.registry.keys.BlockTypeKeys`.
+
+<Aside type="caution" title="Enregistre le générateur dans onLoad()">
+	Les mondes sont ouverts entre `onLoad()` et `onEnable()`. Un générateur enregistré dans
+	`onEnable()` arrive trop tard pour le monde principal. Note aussi que les chunks déjà générés ne
+	changent pas : seuls les nouveaux passent par ton générateur.
+</Aside>
+
+`generate` est appelé **en parallèle sur les threads de génération** : ton générateur doit être
+thread-safe (pas d'état mutable partagé entre deux appels).
+
+Pour un monde à part plutôt que de remplacer le générateur de tous les mondes, passe le générateur
+directement à `ctx.server().createWorld(Key.key("monplugin", "damier"), new GenerateurDamier())`.
+
+### Exemple 2 : envelopper l'implémentation existante
+
+Souvent, on ne veut pas tout réécrire, seulement changer un détail. On récupère alors
+l'implémentation actuelle **avant** de s'enregistrer, et on lui délègue le reste.
+
+Ici, tout le monde est remis en survie à la connexion, mais la sauvegarde reste celle du serveur :
+
+```java title="SurvieForcee.java"
+public final class SurvieForcee implements PlayerDataStorage {
+
+    private final PlayerDataStorage precedent;
+
+    public SurvieForcee(final PlayerDataStorage precedent) {
+        this.precedent = precedent;
+    }
+
+    @Override
+    public PlayerData load(final UUID uuid, final PlayerData defaults) throws IOException {
+        final PlayerData data = precedent.load(uuid, defaults);
+        return new PlayerData(
+                GameMode.SURVIVAL,
+                data.respawnWorld(),
+                data.respawnLocation(),
+                data.world(),
+                data.location());
+    }
+
+    @Override
+    public void save(final UUID uuid, final PlayerData data) throws IOException {
+        precedent.save(uuid, data);
+    }
+
+    @Override
+    public boolean exists(final UUID uuid) throws IOException {
+        return precedent.exists(uuid);
+    }
+}
+```
+
+`load` est appelé pendant la connexion du joueur, `save` sur un thread à part à sa déconnexion. Les
+deux peuvent faire des I/O, mais doivent supporter d'être appelés depuis plusieurs threads.
+
+### Le plugin complet
+
+<Tabs>
+	<TabItem label="ServicesPlugin.java">
+		```java
+		public final class ServicesPlugin implements Plugin {
+
+		    private PluginContext ctx;
+
+		    @Override
+		    public void onLoad(final PluginContext ctx) {
+		        this.ctx = ctx;
+
+		        // Le générateur doit être en place AVANT l'ouverture des mondes, donc dans onLoad.
+		        ctx.services().register(WorldGenerator.class, new GenerateurDamier(), this);
+
+		        // On récupère l'implémentation actuelle avant de se mettre devant elle.
+		        final PlayerDataStorage actuel = ctx.services().get(PlayerDataStorage.class);
+		        ctx.services().register(PlayerDataStorage.class, new SurvieForcee(actuel), this, ServicePriority.NORMAL);
+		    }
+
+		    @Override
+		    public void onEnable() {
+		        ctx.server().commands().register(ctx.meta(), new BlesserCommande(ctx.services()).create());
+		    }
+
+		    @Override
+		    public void onDisable() {
+		        ctx.server().commands().unregisterNamespace(ctx.meta());
+		        // Les services enregistrés avec "this" comme propriétaire sont retirés tout seuls.
+		    }
+		}
+		```
+	</TabItem>
+	<TabItem label="fidorial.json">
+		```json
+		{
+		  "id": "services",
+		  "name": "Exemple de services",
+		  "version": "1.0.0",
+		  "main": "com.exemple.services.ServicesPlugin",
+		  "authors": ["toi"],
+		  "permissions": {
+		    "services.blesser": {
+		      "description": "Utiliser /blesser",
+		      "regular": "NOT_SET",
+		      "operator": "TRUE"
+		    }
+		  }
+		}
+		```
+	</TabItem>
+</Tabs>
+
+## Quels services le serveur utilise vraiment
+
+Tous les services ne sont pas encore branchés de la même façon. Certains sont **relus par le
+serveur à chaque utilisation** : les remplacer change son comportement. D'autres sont enregistrés
+dans le registre et **utilisables** par les plugins, mais le serveur appelle encore sa propre
+implémentation en direct.
+
+### Remplaçables
+
+| Service | Rôle | Par défaut |
+| --- | --- | --- |
+| `world.generation.WorldGenerator` | Remplit les nouveaux chunks des mondes créés sans générateur explicite. | aucun : monde plat en cobblestone |
+| `storage.player.PlayerDataStorage` | Mode de jeu, point de réapparition et dernière position des joueurs. | fichiers NBT |
+| `storage.player.PlayerInventoryStorage` | Inventaire des joueurs. | fichiers NBT |
+| `storage.player.PlayerEnderChestStorage` | Ender chest des joueurs. | fichiers NBT |
+| `permission.PermissionResolver` | Décide d'une permission avant les règles par défaut. Utile pour brancher un vrai gestionnaire de permissions. | aucun |
+
+### Utilisables, mais pas encore remplaçables
+
+Ces services sont enregistrés par le serveur, et `get(...)` te renvoie bien l'implémentation du
+serveur. Mais si tu enregistres la tienne, **le serveur continuera d'utiliser la sienne** pour
+l'instant :
+
+`combat.CombatService`, `world.weather.WeatherManager`, `world.fluid.FluidManager`,
+`permission.PermissionRegistry`, `command.CommandRegistry`, `entity.OfflinePlayers`,
+`moderation.BanManager`, `moderation.WhitelistManager`, `entity.mob.MobRegistry`,
+`world.structure.StructureManager`, `gamerule.GameRules`.
+
+La plupart sont aussi accessibles directement depuis le serveur : `server().bans()`,
+`server().whitelist()`, `server().permissions()`, `server().commands()`, `server().mobs()`,
+`server().structures()`, `server().gameRules()`… Pour la météo d'un monde précis, préfère
+`world.weather()`.
+
+## Et mes propres services ?
+
+Rien n'empêche d'enregistrer une interface à toi dans le registre, et de la récupérer ailleurs dans
+**ton** plugin.
+
+<Aside type="caution" title="Pas encore entre plugins">
+	Chaque plugin a son propre classloader et ne voit pas les classes des autres plugins, même s'il
+	les déclare dans `depends`. Un service dont l'interface vit dans le plugin A ne peut donc pas
+	être utilisé par le plugin B pour l'instant. Seules les interfaces de l'API sont partagées.
+</Aside>

@@ -1,0 +1,149 @@
+---
+title: Commandes
+description: Déclarer des commandes Brigadier, avec arguments, permissions et alias.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Les commandes de Fidorial utilisent [Brigadier](https://github.com/Mojang/brigadier), la
+bibliothèque de Mojang. Le client reçoit l'arbre des commandes : complétion et coloration
+fonctionnent sans rien faire de plus.
+
+## Déclarer une commande
+
+On construit l'arbre avec `Commands.literal(...)` et `Commands.argument(...)`, puis on l'enregistre
+avec `ctx.server().commands().register(...)` :
+
+```java
+ctx.server().commands().register(ctx.meta(), Commands.literal("annonce")
+        .requires(source -> source.sender().hasPermission("commandes.annonce"))
+        .then(Commands.argument("message", ArgumentTypes.greedyString())
+                .executes(context -> {
+                    final String message = context.getArgument("message", String.class);
+                    // Server est une Audience : envoyer au serveur, c'est envoyer à tous les joueurs.
+                    context.getSource().server().sendMessage(
+                            Component.text("[Annonce] " + message, NamedTextColor.YELLOW));
+                    return Command.SINGLE_SUCCESS;
+                })), Set.of("ann"));
+```
+
+- Passer `ctx.meta()` range la commande sous l'**id** de ton plugin. Elle répond à `/annonce` et à
+  `/commandes:annonce`.
+- Le dernier paramètre, facultatif, ajoute des **alias** (ici `/ann`).
+- `executes` renvoie un entier : `Command.SINGLE_SUCCESS` (1) si la commande a fonctionné, `0`
+  sinon.
+
+## La source de la commande
+
+`context.getSource()` est un `CommandSource` :
+
+| Méthode | Contenu |
+| --- | --- |
+| `sender()` | Qui a tapé la commande : un `Player`, ou la console. C'est une `Audience` Adventure. |
+| `executor()` | L'entité qui exécute la commande, qui peut différer du `sender` (avec `/execute as`, par exemple). `null` pour la console. |
+| `location()` | La position d'exécution. |
+| `server()` | Le serveur. |
+
+Pour une commande réservée aux joueurs :
+
+```java
+if (!(context.getSource().sender() instanceof final Player joueur)) {
+    context.getSource().sender().sendMessage(Component.text("Réservé aux joueurs."));
+    return 0;
+}
+```
+
+## Arguments
+
+`fr.fidorial.command.argument.ArgumentTypes` regroupe les types d'arguments reconnus par le client.
+Quelques-uns :
+
+| Méthode | Type récupéré |
+| --- | --- |
+| `word()`, `string()`, `greedyString()` | `String` |
+| `integer()`, `integer(min, max)`, `doubleArg()`, `floatArg()`… | le nombre correspondant |
+| `bool()` | `Boolean` |
+| `player()`, `players()` | `PlayerSelectorArgumentResolver` (accepte les sélecteurs `@p`, `@a`…) |
+| `entity()`, `entities()` | `EntitySelectorArgumentResolver` |
+| `blockPosition()` | `BlockPosResolver` (accepte `~ ~1 ~`) |
+| `world()` | `World` |
+| `gameMode()` | `GameMode` |
+| `key()` | `Key` |
+| `component()` | `Component` (JSON) |
+
+Les **resolvers** se résolvent avec la source de la commande :
+
+```java
+final Player cible = context
+        .getArgument("cible", PlayerSelectorArgumentResolver.class)
+        .resolve(context.getSource())
+        .getFirst();
+```
+
+## Permissions
+
+`requires(...)` cache la commande à qui ne remplit pas la condition : elle n'apparaît même pas
+dans la complétion. Avec une permission :
+
+```java
+.requires(source -> source.sender().hasPermission("commandes.annonce"))
+```
+
+<Aside type="caution" title="Déclare tes permissions">
+	Une permission que personne n'a déclarée vaut **non** pour tout le monde, opérateurs et console
+	compris. Déclare donc tes nœuds dans `fidorial.json` en indiquant qui les possède par défaut :
+
+	```json
+	"permissions": {
+	  "commandes.annonce": {
+	    "description": "Faire une annonce à tout le serveur",
+	    "regular": "NOT_SET",
+	    "operator": "TRUE"
+	  }
+	}
+	```
+
+	Voir la [référence de fidorial.json](/fr/reference/fidorial-json/#permissions).
+</Aside>
+
+## La commande ne tourne pas sur le thread du joueur
+
+Chaque commande s'exécute sur un **thread virtuel** à part, pas sur le thread de la région du
+joueur. Lire des informations ou envoyer un message ne pose pas de problème. Pour **modifier** le
+joueur ou le monde, repasse sur le bon thread avec `execute(...)` :
+
+```java
+private int monter(final CommandContext<CommandSource> context, final int blocs) {
+    if (!(context.getSource().sender() instanceof final Player joueur)) {
+        context.getSource().sender().sendMessage(Component.text("Réservé aux joueurs."));
+        return 0;
+    }
+    // La commande tourne sur un thread virtuel : on repasse sur le thread du joueur.
+    joueur.execute(() -> {
+        final Location ici = joueur.location();
+        joueur.teleport(ici.x(), ici.y() + blocs, ici.z());
+    });
+    return Command.SINGLE_SUCCESS;
+}
+```
+
+```java
+ctx.server().commands().register(ctx.meta(), Commands.literal("monter")
+        .executes(context -> monter(context, 10))
+        .then(Commands.argument("blocs", ArgumentTypes.integer(1, 100))
+                .executes(context -> monter(context, context.getArgument("blocs", Integer.class)))));
+```
+
+Plus de détails dans [Threads et régions](/fr/guides/threads/).
+
+## Retirer ses commandes
+
+Les commandes **ne sont pas retirées automatiquement** quand le plugin s'arrête. Pense à le faire
+dans `onDisable()` :
+
+```java
+@Override
+public void onDisable() {
+    ctx.server().commands().unregisterNamespace(ctx.meta());
+}
+```
