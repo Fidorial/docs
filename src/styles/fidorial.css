@@ -1,15 +1,349 @@
-/* Couleurs d'accent de Fidorial, en attendant une vraie identité visuelle. */
-
-/* Thème sombre (par défaut dans Starlight) */
 :root {
-    --sl-color-accent-low: #2a2050;
-    --sl-color-accent: #7c63f2;
-    --sl-color-accent-high: #d4cbff;
+    --sl-font: 'Atkinson Hyperlegible Next Variable', var(--sl-font-system);
+    --sl-font-mono: 'JetBrains Mono Variable', var(--sl-font-system-mono);
+    --fido-font-display: 'Bricolage Grotesque Variable', var(--sl-font);
 }
 
-/* Thème clair */
+:root {
+    --fido-violet: #b8a3ee;
+    --fido-rose: #e7a3c9;
+    --fido-violet-soft: #302a41;
+    --fido-rose-soft: #3a2a36;
+    --fido-surface: #25202b;
+    --fido-page-glow: linear-gradient(180deg, #2b2534 0%, #1f1b24 100%);
+
+    --sl-color-white: #ece6f0;
+    --sl-color-gray-1: #ded6e4;
+    --sl-color-gray-2: #c4bacb;
+    --sl-color-gray-3: #988da1;
+    --sl-color-gray-4: #685e72;
+    --sl-color-gray-5: #3c3545;
+    --sl-color-gray-6: #2a2531;
+    --sl-color-gray-7: #25202b;
+    --sl-color-black: #1f1b24;
+
+    --sl-color-accent-low: #342c47;
+    --sl-color-accent: #a98ae8;
+    --sl-color-accent-high: #d8cdf3;
+
+    --sl-color-text-accent: var(--fido-violet);
+    --sl-color-bg-nav: #24202a;
+    --sl-color-bg-sidebar: #24202a;
+    --sl-color-bg-inline-code: #2e2836;
+    --sl-color-hairline-light: #38313f;
+    --sl-color-hairline: #2e2835;
+    --sl-color-hairline-shade: #2e2835;
+    --sl-color-backdrop-overlay: rgb(31 27 36 / 0.7);
+
+    --sl-hue-blue: 262;
+    --sl-hue-purple: 322;
+    --sl-hue-red: 348;
+    --sl-color-blue-low: #2d2840;
+    --sl-color-blue: #a98ae8;
+    --sl-color-blue-high: #ddd3f5;
+    --sl-color-purple-low: #382835;
+    --sl-color-purple: #e391bd;
+    --sl-color-purple-high: #f3d5e6;
+
+    --sl-color-orange-low: #362820;
+    --sl-color-orange: #e9a27c;
+    --sl-color-orange-high: #f3d9c9;
+
+    --fido-link-underline: rgb(231 163 201 / 0.5);
+    --fido-selection: rgb(231 163 201 / 0.28);
+}
+
 :root[data-theme='light'] {
-    --sl-color-accent-low: #e3ddff;
-    --sl-color-accent: #5b3fd6;
-    --sl-color-accent-high: #2a1a78;
+    --fido-violet: #7a3cf0;
+    --fido-rose: #e0428e;
+    --fido-violet-soft: #efe5ff;
+    --fido-rose-soft: #ffe0ef;
+    --fido-surface: #ffffff;
+    --fido-page-glow: linear-gradient(180deg, #f1e8ff 0%, #fbeaf4 45%, #fbf7fb 100%);
+
+    --sl-color-white: #2a1236;
+    --sl-color-gray-1: #3b2147;
+    --sl-color-gray-2: #4d3559;
+    --sl-color-gray-3: #6f5879;
+    --sl-color-gray-4: #9a86a2;
+    --sl-color-gray-5: #e3d3e8;
+    --sl-color-gray-6: #f1e6f1;
+    --sl-color-gray-7: #f6eff6;
+    --sl-color-black: #fbf7fb;
+
+    --sl-color-accent-low: #efe5ff;
+    --sl-color-accent: #7a3cf0;
+    --sl-color-accent-high: #4a1fa8;
+
+    --sl-color-text-accent: var(--fido-violet);
+    --sl-color-text-invert: #ffffff;
+    --sl-color-bg-nav: #fefbfe;
+    --sl-color-bg-sidebar: #f8f2f8;
+    --sl-color-bg-inline-code: #f2eafb;
+    --sl-color-hairline-light: #eee0ee;
+    --sl-color-hairline: #eee0ee;
+    --sl-color-hairline-shade: #eee0ee;
+    --sl-color-backdrop-overlay: rgb(42 18 54 / 0.35);
+
+    --sl-color-blue-low: #efe5ff;
+    --sl-color-blue: #7a3cf0;
+    --sl-color-blue-high: #4a1fa8;
+    --sl-color-purple-low: #ffe6f2;
+    --sl-color-purple: #e0428e;
+    --sl-color-purple-high: #9c1c5b;
+    --sl-color-orange-low: #fff0e8;
+    --sl-color-orange: #ee8650;
+    --sl-color-orange-high: #84380f;
+
+    --sl-shadow-sm: 0 1px 2px rgb(122 60 240 / 0.06), 0 1px 1px rgb(224 66 142 / 0.05);
+    --sl-shadow-md: 0 6px 16px rgb(122 60 240 / 0.08), 0 2px 4px rgb(224 66 142 / 0.06);
+
+    --fido-link-underline: rgb(224 66 142 / 0.45);
+    --fido-selection: rgb(224 66 142 / 0.22);
+}
+
+::selection {
+    background-color: var(--fido-selection);
+}
+
+html[data-has-hero] body {
+    background: var(--fido-page-glow) no-repeat, var(--sl-color-black);
+    background-size: 100% 40rem, auto;
+}
+
+header.header {
+    border-bottom: 0;
+    box-shadow: inset 0 -1px 0 var(--sl-color-hairline-shade);
+}
+header.header::after {
+    content: '';
+    position: absolute;
+    inset-inline: 0;
+    bottom: 0;
+    height: 2px;
+    background: linear-gradient(90deg, var(--fido-rose), var(--fido-violet));
+}
+
+.site-title {
+    font-family: var(--fido-font-display);
+    font-weight: 700;
+    font-size: 1.35rem;
+    letter-spacing: -0.01em;
+    color: var(--sl-color-white);
+}
+
+h1,
+.sl-markdown-content :is(h2, h3, h4) {
+    font-family: var(--fido-font-display);
+    letter-spacing: -0.015em;
+}
+h1#_top {
+    font-weight: 750;
+    letter-spacing: -0.025em;
+}
+.sl-markdown-content h2 {
+    font-weight: 700;
+}
+.sl-markdown-content h3 {
+    font-weight: 650;
+}
+@media (min-width: 50em) {
+    :root {
+        --sl-text-h1: 3rem;
+        --sl-text-h2: 2rem;
+        --sl-text-h3: 1.5rem;
+        --sl-text-h4: 1.25rem;
+    }
+}
+
+.hero h1 {
+    font-family: var(--fido-font-display);
+    font-size: clamp(3rem, calc(1rem + 7vw), 5.5rem);
+    line-height: 0.95;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+    color: var(--sl-color-white);
+}
+.hero .tagline {
+    line-height: 1.5;
+    max-width: 38ch;
+}
+
+code,
+pre,
+.expressive-code {
+    font-variant-ligatures: none;
+    font-feature-settings: 'liga' 0, 'calt' 0;
+}
+
+.sl-markdown-content a:not(:where(.not-content *, .sl-link-card *)) {
+    color: var(--sl-color-text-accent);
+    text-decoration-line: underline;
+    text-decoration-color: var(--fido-link-underline);
+    text-decoration-thickness: 2px;
+    text-underline-offset: 0.2em;
+    transition: text-decoration-color 0.15s ease, color 0.15s ease;
+}
+.sl-markdown-content a:not(:where(.not-content *, .sl-link-card *)):hover {
+    color: var(--fido-rose);
+    text-decoration-color: var(--fido-rose);
+}
+
+.sl-markdown-content :not(pre) > code {
+    color: var(--sl-color-accent-high);
+    border: 1px solid var(--sl-color-hairline-light);
+    border-radius: 0.35em;
+    padding: 0.1em 0.35em;
+    font-size: 0.875em;
+}
+:root:not([data-theme='light']) .sl-markdown-content :not(pre) > code {
+    color: #e6dcf5;
+}
+
+.sl-markdown-content strong {
+    color: var(--sl-color-white);
+}
+
+.sl-markdown-content blockquote {
+    border-inline-start-color: var(--fido-rose);
+}
+
+.sl-markdown-content :is(th, td) {
+    border-bottom-color: var(--sl-color-hairline-light);
+}
+.sl-markdown-content th {
+    background: var(--fido-violet-soft);
+    color: var(--sl-color-white);
+    font-weight: 650;
+}
+.sl-markdown-content tbody tr:nth-child(even) {
+    background: var(--sl-color-gray-7);
+}
+
+.starlight-aside {
+    border-inline-start-width: 4px;
+    border-radius: 0 0.6rem 0.6rem 0;
+}
+.starlight-aside__title {
+    font-family: var(--fido-font-display);
+    letter-spacing: -0.01em;
+}
+
+.sidebar-content .large {
+    font-family: var(--fido-font-display);
+    font-weight: 700;
+    font-size: var(--sl-text-base);
+    color: var(--sl-color-white);
+}
+.sidebar-content a {
+    border-radius: 0.45rem;
+}
+.sidebar-content a:hover {
+    color: var(--fido-violet);
+}
+.sidebar-content ul ul li {
+    border-inline-start-color: var(--sl-color-gray-5);
+}
+.sidebar-content [aria-current='page'],
+.sidebar-content [aria-current='page']:hover,
+.sidebar-content [aria-current='page']:focus {
+    color: var(--sl-color-accent-high);
+    background: var(--fido-violet-soft);
+    box-shadow: inset 3px 0 0 var(--fido-rose);
+    border-radius: 0 0.45rem 0.45rem 0;
+}
+:root:not([data-theme='light']) .sidebar-content [aria-current='page'] {
+    color: #ece6f0;
+}
+
+starlight-toc a[aria-current='true'],
+starlight-toc a[aria-current='true']:hover,
+starlight-toc a[aria-current='true']:focus {
+    color: var(--fido-rose);
+}
+
+.sl-link-button {
+    border-radius: 999px;
+    font-weight: 650;
+    transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.sl-link-button.primary {
+    background: var(--fido-violet);
+    border-color: var(--fido-violet);
+    color: #ffffff;
+}
+:root:not([data-theme='light']) .sl-link-button.primary {
+    color: #1f1b24;
+}
+.sl-link-button.primary:hover {
+    background: var(--fido-rose);
+    border-color: var(--fido-rose);
+}
+.sl-link-button.minimal:hover,
+.sl-link-button.secondary:hover {
+    color: var(--fido-rose);
+}
+
+.card {
+    --sl-card-border: var(--fido-violet);
+    --sl-card-bg: var(--fido-violet-soft);
+    background: var(--fido-surface);
+    border-color: var(--sl-color-gray-5);
+    border-radius: 1rem;
+}
+.card:nth-child(even) {
+    --sl-card-border: var(--fido-rose);
+    --sl-card-bg: var(--fido-rose-soft);
+}
+.card .icon {
+    border-radius: 0.5rem;
+    padding: 0.3em;
+    color: var(--sl-card-border);
+}
+.card .title {
+    font-family: var(--fido-font-display);
+    letter-spacing: -0.01em;
+}
+
+.sl-link-card {
+    background: var(--fido-surface);
+    border-color: var(--sl-color-gray-5);
+    border-radius: 0.8rem;
+    box-shadow: none;
+    transition: border-color 0.15s ease, background-color 0.15s ease;
+}
+.sl-link-card .title {
+    font-family: var(--fido-font-display);
+    letter-spacing: -0.01em;
+}
+.sl-link-card:hover {
+    background: var(--sl-color-gray-7);
+    border-color: var(--fido-violet);
+}
+.sl-link-card:hover .icon {
+    color: var(--fido-rose);
+}
+
+.sl-badge.default {
+    background: var(--fido-rose-soft);
+    border-color: var(--fido-rose);
+    color: var(--sl-color-white);
+}
+
+:focus-visible {
+    outline: 2px solid var(--fido-rose);
+    outline-offset: 2px;
+}
+
+.pagination-links a {
+    background: var(--fido-surface);
+    border-radius: 0.8rem;
+    box-shadow: none;
+}
+.pagination-links a:hover {
+    border-color: var(--fido-violet);
+}
+.pagination-links .link-title {
+    font-family: var(--fido-font-display);
+    color: var(--sl-color-white);
 }

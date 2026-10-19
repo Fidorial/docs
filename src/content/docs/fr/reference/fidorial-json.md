@@ -33,16 +33,16 @@ Chaque plugin contient un fichier `fidorial.json` **à la racine de son jar**. U
 
 ## Champs
 
-| Champ | Obligatoire | Type | Rôle |
-| --- | :---: | --- | --- |
-| `id` | ✔ | texte | Identifiant unique. Sert aussi de nom de dossier (`plugins/<id>/`), de nom de logger (`plugin/<id>`) et d'espace de noms pour les commandes (`/<id>:commande`). Court, en minuscules, sans espaces. |
-| `name` | ✔ | texte | Nom affiché. |
-| `version` | ✔ | texte | Version affichée. Aucun format imposé. |
-| `main` | ✔ | texte | Nom complet de la classe qui implémente `Plugin`. Elle doit avoir un constructeur public sans argument. |
-| `authors` | | liste de textes | Les auteurs. |
-| `depends` | | liste d'`id` | Plugins à charger et activer **avant** celui-ci. |
-| `permissions` | | objet | Permissions déclarées par le plugin (voir ci-dessous). |
-| `repositories` | | liste d'URL | Dépôts Maven où télécharger les bibliothèques du plugin (usage avancé, voir plus bas). |
+| Champ          | Obligatoire | Type            | Rôle                                                                                                                                                                                                |
+|----------------|:-----------:|-----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `id`           |     ✔      | texte           | Identifiant unique. Sert aussi de nom de dossier (`plugins/<id>/`), de nom de logger (`plugin/<id>`) et d'espace de noms pour les commandes (`/<id>:commande`). Court, en minuscules, sans espaces. |
+| `name`         |     ✔      | texte           | Nom affiché.                                                                                                                                                                                        |
+| `version`      |     ✔      | texte           | Version affichée. Aucun format imposé.                                                                                                                                                              |
+| `main`         |     ✔      | texte           | Nom complet de la classe qui implémente `Plugin`. Elle doit avoir un constructeur public sans argument.                                                                                             |
+| `authors`      |             | liste de textes | Les auteurs.                                                                                                                                                                                        |
+| `depends`      |             | liste d'`id`    | Plugins à charger et activer **avant** celui-ci.                                                                                                                                                    |
+| `permissions`  |             | objet           | Permissions déclarées par le plugin (voir ci-dessous).                                                                                                                                              |
+| `repositories` |             | liste d'URL     | Dépôts Maven où télécharger les bibliothèques du plugin (usage avancé, voir plus bas).                                                                                                              |
 
 Les champs absents sont lus comme des listes ou des objets vides.
 
@@ -64,11 +64,11 @@ plugin : chaque plugin a son propre classloader.
 
 Chaque entrée de `permissions` a pour clé le **nœud** (par exemple `monplugin.admin`) et contient :
 
-| Champ | Rôle |
-| --- | --- |
-| `description` | Ce que la permission autorise. |
-| `regular` | Valeur par défaut pour les joueurs normaux. |
-| `operator` | Valeur par défaut pour les opérateurs (et la console). |
+| Champ         | Rôle                                                   |
+|---------------|--------------------------------------------------------|
+| `description` | Ce que la permission autorise.                         |
+| `regular`     | Valeur par défaut pour les joueurs normaux.            |
+| `operator`    | Valeur par défaut pour les opérateurs (et la console). |
 
 `regular` et `operator` sont **obligatoires** et valent exactement `"TRUE"`, `"FALSE"` ou `"NOT_SET"`,
 en majuscules. Avec une autre valeur (`"true"`, par exemple) ou un champ manquant, la permission est
