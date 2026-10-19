@@ -1,0 +1,133 @@
+---
+title: Threads and regions
+description: Understand how the world is split into regions, and run code on the right thread.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+This is **the** difference from Paper or Spigot when writing a Fidorial plugin: there is no main
+thread running the whole world. The server takes its inspiration from Folia.
+
+## The model
+
+- Each world is split into **regions** of 32×32 chunks by default (configurable with
+  `region-section-shift` in the server configuration).
+- Each region is ticked at **20 TPS**, independently of the others, by a thread from the
+  `region-workers` pool.
+- A block or an entity belongs to **a single region at a time**, so to a single thread.
+
+Hence two rules:
+
+1. **Only change a block or an entity from the thread of its region.**
+2. **Never block a region thread**: no I/O, no network call, no waiting. A blocked region means
+   every player in it lags.
+
+<Aside type="tip">
+	The `/tps` command (or `tps` in the console) shows the health of every region.
+</Aside>
+
+## Where your code runs
+
+| You are in… | Thread |
+| --- | --- |
+| `onLoad`, `onEnable`, `onDisable` | the thread starting or stopping the server |
+| an event listener | the one posting the event: see [Events](/guides/events/#which-thread) |
+| a command | a virtual thread dedicated to commands |
+| a task passed to `execute(...)` | the thread of the target region |
+| a `WorldGenerator` | a chunk generation thread |
+
+## Running on an entity's thread
+
+Entities (players included) and chunks implement `SchedulerSource`:
+
+```java
+player.execute(() -> player.sendActionBar(Component.text("Hi")));
+player.executeDelayed(() -> player.setGameMode(GameMode.SURVIVAL), 100); // in 5 seconds
+player.isOwnedByCurrentThread();                                         // am I on its thread?
+```
+
+The region is resolved **when you schedule the task**. If the entity is gone, `execute` returns
+`false` and the task is not scheduled.
+
+## Running at a position
+
+For a position rather than an entity, go through the server's (or the world's) scheduler, with the
+world key and the chunk:
+
+```java
+ctx.events().subscribe(BlockBreakEvent.class, event -> {
+    final World world = event.world();
+    final BlockPos pos = event.position();
+    // Here we are already on the thread of the region that owns this block.
+
+    // Act on the same block in 5 seconds (100 ticks):
+    world.scheduler().executeDelayed(world.key(), pos.chunk(), () ->
+            ctx.logger().info("Block at {}: {}", pos, world.blockKeyAt(pos)), 100);
+});
+```
+
+| `RegionizedScheduler` method | Purpose |
+| --- | --- |
+| `execute(world, chunk, task)` | as soon as possible, on the region's thread |
+| `executeDelayed(world, chunk, task, ticks)` | after at least `ticks` ticks |
+| `isOwnedByCurrentThread(world, chunk)` | check whether you are already on the right thread |
+| `tpsSnapshots()` | TPS and ms/tick of every region, worst first |
+
+## Repeating a task
+
+There is no built-in repeating task: a task reschedules itself. For instance, to show a player's
+position every second:
+
+```java
+private volatile boolean active;
+
+private void everySecond(final Player player) {
+    player.executeDelayed(() -> {
+        if (!active || player.isRemoved()) {
+            return; // the plugin stopped, or the player left: don't reschedule
+        }
+        player.sendActionBar(Component.text("Position: " + player.location().blockPos()));
+        everySecond(player);
+    }, 20);
+}
+```
+
+<Aside type="caution">
+	Scheduled tasks are not tied to your plugin and are not cancelled when it stops. Set `active` to
+	`true` in `onEnable()` and to `false` in `onDisable()`, and check it in the task, as above.
+</Aside>
+
+## Slow work
+
+The server does not provide an "async" pool for plugins. For a file read, an HTTP request or a
+database, use **your own executor**, then come back to the right thread with `execute(...)` to
+apply the result:
+
+```java
+private ExecutorService io;
+
+@Override
+public void onEnable() {
+    active = true;
+    io = Executors.newVirtualThreadPerTaskExecutor();
+
+    ctx.events().subscribe(PlayerJoinEvent.class, event -> {
+        final Player player = event.player();
+
+        // Slow work: off the region thread, then back onto the player's thread.
+        CompletableFuture
+                .supplyAsync(() -> readStats(player.uuid()), io)
+                .thenAccept(stats -> player.execute(() ->
+                        player.sendMessage(Component.text("Your stats: " + stats))));
+    });
+}
+
+@Override
+public void onDisable() {
+    active = false;
+    io.shutdown();
+}
+```
+
+Several API methods already return a `CompletableFuture` for the same reason:
+`world.chunkAsync(...)`, `entity.teleport(...)`, `player.respawn()`…

@@ -1,0 +1,143 @@
+---
+title: Maps
+description: Create maps, draw shapes, text and images on them, paint per-player layers and place icons.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A map is the 128×128 picture shown by a `filled_map` item. Fidorial lets a plugin create maps, draw
+anything on them, and even show a different picture to each player: scoreboards, minimaps,
+images, mini-games…
+
+Everything starts from `ctx.server().maps()`, the `MapManager`.
+
+## Creating a map and giving it
+
+```java
+final MapManager maps = ctx.server().maps();
+
+// A map of the terrain around (0, 0), like a vanilla map:
+final MapView terrain = maps.create(world, 0, 0, MapScale.ONE_TO_ONE);
+terrain.renderTerrain();   // draws the blocks already generated (asynchronous)
+
+// An empty map, to draw on:
+final MapView board = maps.createBlank();
+
+player.inventory().set(player.selectedSlot(), board.item());
+player.updateInventory();
+```
+
+Maps are saved with the world in the vanilla format (`world/data/minecraft/maps/<id>.dat`) and found
+again with `maps.get(id)` or `maps.of(itemStack)`. `maps.createTemporary()` makes a map that is
+never saved: good for a picture you redraw anyway.
+
+A player sees a map while they **carry** it, while it is **shown** to them
+(`view.show(player)` / `hide(player)`), or while it **hangs** in an item frame only they see:
+
+```java
+final MapFrame frame = board.hang(player, Position.block(10, 65, 10), BlockFace.NORTH, true);
+// frame.remove() takes it down
+```
+
+## Drawing
+
+A map pixel is a byte: one of the client's base colours (`MapColor`) in one of four shades. The
+palette converts:
+
+```java
+final MapPalette palette = maps.palette();
+final byte pink = palette.pixel(MapColor.COLOR_PINK);
+final byte black = palette.pixel(MapColor.COLOR_BLACK, MapShade.DEEP_SHADOW);
+final byte nearest = palette.closest(0x7A3CF0);   // closest colour to an RGB value
+```
+
+Then draw on the map's canvas. `(0, 0)` is the top left corner:
+
+```java
+final MapCanvas canvas = board.canvas();
+canvas.batch(c -> {
+    c.fill(palette.pixel(MapColor.SNOW));
+    c.rectangle(4, 4, 120, 120, pink);
+    c.line(4, 4, 123, 123, pink);
+    c.text(10, 10, "Fidorial", black);
+});
+```
+
+`batch` groups the edits so players receive them in one update. Changes reach players on the next
+tick, or right away with `view.flush()`. A map can be used from any thread.
+
+### Images
+
+`maps.image(...)` converts a picture to map colours, with or without dithering. An image larger
+than 128×128 can be cut into tiles, one per map:
+
+```java
+final BufferedImage logo = ImageIO.read(ctx.dataFolder().resolve("logo.png").toFile());
+final MapImage image = maps.image(logo, 256, 256, MapImage.Dithering.ERROR_DIFFUSION);
+
+for (int row = 0; row < image.rows(); row++) {
+    for (int column = 0; column < image.columns(); column++) {
+        final MapView tile = maps.createBlank();
+        tile.canvas().draw(image.tile(column, row), 0, 0);
+        // hang the tiles side by side to rebuild the picture
+    }
+}
+```
+
+### Text with a component
+
+`canvas.text(x, y, component, font, pixel, shadow)` writes an Adventure component with a
+`MapFont`: `maps.standardFont()` is the vanilla map font, and `maps.fontBuilder(...)` lets you
+build your own glyphs.
+
+## Layers
+
+A **layer** paints over a map **without changing what it stores**. It is either shared (painted
+once for everyone) or per-viewer (painted once for each player who sees the map), and can repaint
+itself every N ticks:
+
+```java
+final MapLayer hello = maps.layer(MapLayer.Scope.PER_VIEWER, 20, context -> {
+    final String name = context.viewer().map(Player::name).orElse("?");
+    context.canvas().text(4, 116, "Hi " + name + "!", palette.pixel(MapColor.COLOR_BLACK));
+});
+board.addLayer(hello);
+```
+
+With an interval of `0`, the layer is only repainted when you call `view.repaint()` (and, for a
+per-viewer layer, when someone starts seeing the map).
+
+<Aside type="caution">
+	Layers are painted off the region threads. Keep them quick, and do not touch the world from them:
+	read what you need beforehand.
+</Aside>
+
+## Icons
+
+Icons (player arrows, banners, crosses…) are **markers** stored on the map, or decorations a layer
+adds on the fly with `context.decorate(...)`. Positions are in canvas pixels; `pixelX` and
+`pixelY` convert world coordinates:
+
+```java
+board.markers().put(Key.key("myplugin", "treasure"), new MapDecoration(
+        MapDecorationTypeKeys.RED_X,
+        terrain.pixelX(120), terrain.pixelY(-45),
+        0,                                  // direction, in sixteenths of a turn
+        Component.text("Treasure")));
+```
+
+`MapView` also controls vanilla behaviour: `tracksPlayers(true)` shows player arrows, `locked(true)`
+freezes the terrain, and `maps.zoomedOut(view)` / `maps.lockedCopy(view)` work like the cartography
+table.
+
+## When a player makes a map
+
+`PlayerCreateMapEvent` is posted when a player uses an empty map. You can cancel it, or move and
+rescale the new map:
+
+```java
+ctx.events().subscribe(PlayerCreateMapEvent.class, event -> {
+    event.center(0, 0);                 // every map shows the spawn
+    event.scale(MapScale.ONE_TO_FOUR);
+});
+```

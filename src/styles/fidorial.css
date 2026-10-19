@@ -115,6 +115,7 @@ header.header {
     border-bottom: 0;
     box-shadow: inset 0 -1px 0 var(--sl-color-hairline-shade);
 }
+
 header.header::after {
     content: '';
     position: absolute;
@@ -137,16 +138,20 @@ h1,
     font-family: var(--fido-font-display);
     letter-spacing: -0.015em;
 }
+
 h1#_top {
     font-weight: 750;
     letter-spacing: -0.025em;
 }
+
 .sl-markdown-content h2 {
     font-weight: 700;
 }
+
 .sl-markdown-content h3 {
     font-weight: 650;
 }
+
 @media (min-width: 50em) {
     :root {
         --sl-text-h1: 3rem;
@@ -164,6 +169,7 @@ h1#_top {
     letter-spacing: -0.04em;
     color: var(--sl-color-white);
 }
+
 .hero .tagline {
     line-height: 1.5;
     max-width: 38ch;
@@ -184,6 +190,7 @@ pre,
     text-underline-offset: 0.2em;
     transition: text-decoration-color 0.15s ease, color 0.15s ease;
 }
+
 .sl-markdown-content a:not(:where(.not-content *, .sl-link-card *)):hover {
     color: var(--fido-rose);
     text-decoration-color: var(--fido-rose);
@@ -196,6 +203,7 @@ pre,
     padding: 0.1em 0.35em;
     font-size: 0.875em;
 }
+
 :root:not([data-theme='light']) .sl-markdown-content :not(pre) > code {
     color: #e6dcf5;
 }
@@ -211,11 +219,13 @@ pre,
 .sl-markdown-content :is(th, td) {
     border-bottom-color: var(--sl-color-hairline-light);
 }
+
 .sl-markdown-content th {
     background: var(--fido-violet-soft);
     color: var(--sl-color-white);
     font-weight: 650;
 }
+
 .sl-markdown-content tbody tr:nth-child(even) {
     background: var(--sl-color-gray-7);
 }
@@ -224,6 +234,7 @@ pre,
     border-inline-start-width: 4px;
     border-radius: 0 0.6rem 0.6rem 0;
 }
+
 .starlight-aside__title {
     font-family: var(--fido-font-display);
     letter-spacing: -0.01em;
@@ -235,15 +246,19 @@ pre,
     font-size: var(--sl-text-base);
     color: var(--sl-color-white);
 }
+
 .sidebar-content a {
     border-radius: 0.45rem;
 }
+
 .sidebar-content a:hover {
     color: var(--fido-violet);
 }
+
 .sidebar-content ul ul li {
     border-inline-start-color: var(--sl-color-gray-5);
 }
+
 .sidebar-content [aria-current='page'],
 .sidebar-content [aria-current='page']:hover,
 .sidebar-content [aria-current='page']:focus {
@@ -252,6 +267,7 @@ pre,
     box-shadow: inset 3px 0 0 var(--fido-rose);
     border-radius: 0 0.45rem 0.45rem 0;
 }
+
 :root:not([data-theme='light']) .sidebar-content [aria-current='page'] {
     color: #ece6f0;
 }
@@ -267,18 +283,22 @@ starlight-toc a[aria-current='true']:focus {
     font-weight: 650;
     transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
+
 .sl-link-button.primary {
     background: var(--fido-violet);
     border-color: var(--fido-violet);
     color: #ffffff;
 }
+
 :root:not([data-theme='light']) .sl-link-button.primary {
     color: #1f1b24;
 }
+
 .sl-link-button.primary:hover {
     background: var(--fido-rose);
     border-color: var(--fido-rose);
 }
+
 .sl-link-button.minimal:hover,
 .sl-link-button.secondary:hover {
     color: var(--fido-rose);
@@ -291,15 +311,18 @@ starlight-toc a[aria-current='true']:focus {
     border-color: var(--sl-color-gray-5);
     border-radius: 1rem;
 }
+
 .card:nth-child(even) {
     --sl-card-border: var(--fido-rose);
     --sl-card-bg: var(--fido-rose-soft);
 }
+
 .card .icon {
     border-radius: 0.5rem;
     padding: 0.3em;
     color: var(--sl-card-border);
 }
+
 .card .title {
     font-family: var(--fido-font-display);
     letter-spacing: -0.01em;
@@ -312,14 +335,17 @@ starlight-toc a[aria-current='true']:focus {
     box-shadow: none;
     transition: border-color 0.15s ease, background-color 0.15s ease;
 }
+
 .sl-link-card .title {
     font-family: var(--fido-font-display);
     letter-spacing: -0.01em;
 }
+
 .sl-link-card:hover {
     background: var(--sl-color-gray-7);
     border-color: var(--fido-violet);
 }
+
 .sl-link-card:hover .icon {
     color: var(--fido-rose);
 }
@@ -340,9 +366,11 @@ starlight-toc a[aria-current='true']:focus {
     border-radius: 0.8rem;
     box-shadow: none;
 }
+
 .pagination-links a:hover {
     border-color: var(--fido-violet);
 }
+
 .pagination-links .link-title {
     font-family: var(--fido-font-display);
     color: var(--sl-color-white);

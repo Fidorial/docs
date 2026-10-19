@@ -1,0 +1,165 @@
+---
+title: Players and entities
+description: Find players, talk to them, change their state, teleport them, and handle offline players and bans.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+A `Player` is a `LivingEntity` (health, effects…), a `CommandSender` (permissions) and an Adventure
+`Audience` (messages, titles, sounds). This page goes through what you will use most often.
+
+## Finding players
+
+Everything starts from `ctx.server().players()`:
+
+```java
+final PlayerManager players = ctx.server().players();
+
+players.online();                 // every connected player
+players.count();
+players.get("Steve");             // Optional, ignores case
+players.get(uuid);                // Optional
+```
+
+<Aside type="caution" title="Do not keep Player objects">
+	A `Player` is only guaranteed valid during the call that handed it to you (an event, a command…).
+	When a player goes back to the configuration phase (`player.enterConfigurationPhase()`), the server
+	drops the object and creates a new one. Store the **UUID**, and fetch the player again with
+	`players().get(uuid)` when you need it.
+</Aside>
+
+## Talking to players
+
+Fidorial uses [Adventure](https://docs.advntr.dev/) for all text. A player, a world and the server
+are all audiences: sending to the server reaches every player, sending to a world reaches the
+players in it.
+
+```java
+player.sendMessage(Component.text("Hello!", NamedTextColor.GOLD));
+player.sendActionBar(Component.text("Look up"));
+player.showTitle(Title.title(Component.text("Welcome"), Component.text("to the server")));
+player.playSound(Sound.sound(Key.key("entity.experience_orb.pickup"), Sound.Source.PLAYER, 1f, 1f));
+
+ctx.server().sendMessage(Component.text("To everyone"));
+```
+
+Boss bars work the same way, with `BossBar.bossBar(...)` and `player.showBossBar(bar)`.
+
+[MiniMessage](https://docs.advntr.dev/minimessage/) is available to turn a string into a
+component:
+
+```java
+player.sendMessage(MiniMessage.miniMessage().deserialize("<rainbow>Fidorial</rainbow> says hi"));
+```
+
+## Changing a player
+
+As with every entity, **read freely, change from the right thread**. Most of the time you are
+already on it (block events, `PlayerJoinEvent`…); otherwise go through `player.execute(...)` (see
+[Threads and regions](/guides/threads/)).
+
+```java
+player.execute(() -> {
+    player.setGameMode(GameMode.CREATIVE);
+    player.heal(4f);                                  // in half-hearts
+    player.setFireTicks(0);
+    player.addEffect(ctx.server().registries().effects()
+            .instance(MobEffectKeys.SPEED, 20 * 30, 1)); // 30 s of Speed II
+    player.setAttributeBase(AttributeKeys.SCALE.key(), 1.5);
+});
+```
+
+| Method | Purpose |
+| --- | --- |
+| `health()`, `setHealth(f)`, `maxHealth()`, `heal(f)` | Health, in half-hearts. |
+| `damage(source, amount)`, `kill(killer)` | Hurt or kill through the combat rules (armour, events…). |
+| `addEffect(...)`, `effect(type)`, `removeEffect(type)`, `clearEffects()` | Potion effects. |
+| `gameMode()`, `setGameMode(mode)` | Game mode. |
+| `setAttributeBase(key, value)`, `resetAttributeBase(key)` | Base value of an attribute (`AttributeKeys`). |
+| `respawnPoint()`, `setRespawnPoint(...)`, `respawn()` | Respawn point; force a respawn from the death screen. |
+| `inventory()`, `enderChest()`, `heldItem()` | See [Items and inventories](/guides/items/). |
+| `input()` | Keys currently pressed (forward, jump, sneak…). |
+| `ping()`, `address()`, `profile()` | Connection details. |
+| `kick(reason)` | Disconnect the player. |
+| `isOperator()`, `setOperator(b)` | Operator status (saved in `ops.json`). |
+
+The keys of vanilla effects, attributes, items, blocks, sounds… are generated in
+`fr.fidorial.registry.keys` (`MobEffectKeys`, `AttributeKeys`, `ItemKeys`, `BlockTypeKeys`…).
+
+## Teleporting
+
+`teleport` returns a `CompletableFuture<Boolean>`: the move happens on the region threads, and the
+future tells you whether it went through.
+
+```java
+final World world = ctx.server().worlds().get(Key.key("overworld")).orElseThrow();
+
+player.teleport(Location.of(world, 0.5, 100, 0.5))
+        .thenAccept(done -> {
+            if (!done) {
+                ctx.logger().warn("Could not teleport {}", player.name());
+            }
+        });
+
+player.teleport(otherPlayer);   // to another entity
+```
+
+`player.location()` gives the current position (with the world, the yaw and the pitch);
+`location().blockX()`, `blockY()`, `blockZ()` round it to the block.
+
+## Other entities
+
+A world lists its entities, and the mob registry spawns new ones:
+
+```java
+for (final Entity entity : world.entities()) {
+    if (entity instanceof final LivingEntity living && living.isAlive()) {
+        // ...
+    }
+}
+
+world.entity(uuid);   // Optional
+
+// /summon also works with plugin mobs: see "Custom mobs and effects".
+ctx.server().registries().mobs().spawn(Key.key("cow"), player.location());
+```
+
+## Offline players
+
+`players().offline()` knows every player who has ever joined, even when they are not connected:
+
+```java
+final OfflinePlayerManager offline = ctx.server().players().offline();
+
+offline.cached("Steve");          // Optional, from the local cache only
+offline.isOperator(uuid);
+offline.setOperator(uuid, true);
+
+// A name the server has never seen: asks Mojang, so it is asynchronous.
+offline.lookup("Notch").thenAccept(found ->
+        found.ifPresent(p -> ctx.logger().info("{} is {}", p.name().orElse("?"), p.uuid())));
+```
+
+## Bans and whitelist
+
+```java
+final BanManager bans = ctx.server().players().bans();
+
+final BanEntry.Profile ban = BanEntry.Profile.lasting(
+        player.uuid(), player.name(),
+        Component.text("Griefing"),
+        null,                         // who banned (a UUID), null for the console or a plugin
+        Duration.ofDays(3));
+bans.ban(ban);
+player.kick(bans.disconnectMessage(ban));   // banning does not kick on its own
+
+bans.isBanned(uuid);
+bans.pardon(uuid);
+```
+
+The whitelist lives in `players().whitelist()`: `enabled(true)`, `add(uuid, name)`,
+`remove(uuid)`, `contains(uuid)`. Both are saved to `banned-players.json`, `banned-ips.json` and
+`whitelist.json`.
+
+To refuse someone at login for your own reasons, use
+[`PlayerLoginAttemptEvent`](/guides/events/#refusing-a-connection).

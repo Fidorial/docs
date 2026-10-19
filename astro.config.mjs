@@ -81,6 +81,35 @@ export default defineConfig({
                             translations: {fr: 'Threads et régions'},
                             slug: 'guides/threads',
                         },
+                        {
+                            label: 'Players and entities',
+                            translations: {fr: 'Joueurs et entités'},
+                            slug: 'guides/players',
+                        },
+                        {
+                            label: 'Items and inventories',
+                            translations: {fr: 'Items et inventaires'},
+                            slug: 'guides/items',
+                        },
+                        {label: 'Permissions', translations: {fr: 'Permissions'}, slug: 'guides/permissions'},
+                        {label: 'Dialogs', translations: {fr: 'Dialogues'}, slug: 'guides/dialogs'},
+                        {
+                            label: 'Custom mobs and effects',
+                            translations: {fr: 'Mobs et effets personnalisés'},
+                            slug: 'guides/mobs',
+                        },
+                        {label: 'Maps', translations: {fr: 'Cartes'}, slug: 'guides/maps'},
+                    ],
+                },
+                {
+                    label: 'Ecosystem',
+                    translations: {fr: 'Écosystème'},
+                    items: [
+                        {
+                            label: 'Compatible plugins',
+                            translations: {fr: 'Plugins compatibles'},
+                            slug: 'ecosystem/plugins',
+                        },
                     ],
                 },
                 {
@@ -88,6 +117,11 @@ export default defineConfig({
                     translations: {fr: 'Référence'},
                     items: [
                         {label: 'fidorial.json', slug: 'reference/fidorial-json'},
+                        {
+                            label: 'Server configuration',
+                            translations: {fr: 'Configuration du serveur'},
+                            slug: 'reference/configuration',
+                        },
                         {
                             label: 'Javadoc',
                             link: JAVADOC,

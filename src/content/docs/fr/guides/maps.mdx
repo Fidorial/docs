@@ -1,0 +1,145 @@
+---
+title: Cartes
+description: Créer des cartes, y dessiner formes, texte et images, peindre des calques par joueur et placer des icônes.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Une carte, c'est l'image de 128×128 affichée par un item `filled_map`. Fidorial permet à un plugin
+de créer des cartes, d'y dessiner ce qu'il veut, et même de montrer une image différente à chaque
+joueur : tableaux de scores, mini-cartes, images, mini-jeux…
+
+Tout part de `ctx.server().maps()`, le `MapManager`.
+
+## Créer une carte et la donner
+
+```java
+final MapManager cartes = ctx.server().maps();
+
+// Une carte du terrain autour de (0, 0), comme une carte vanilla :
+final MapView terrain = cartes.create(monde, 0, 0, MapScale.ONE_TO_ONE);
+terrain.renderTerrain();   // dessine les blocs déjà générés (asynchrone)
+
+// Une carte vierge, pour dessiner dessus :
+final MapView tableau = cartes.createBlank();
+
+player.inventory().set(player.selectedSlot(), tableau.item());
+player.updateInventory();
+```
+
+Les cartes sont sauvegardées avec le monde au format vanilla (`world/data/minecraft/maps/<id>.dat`)
+et se retrouvent avec `cartes.get(id)` ou `cartes.of(pile)`. `cartes.createTemporary()` crée une
+carte jamais sauvegardée : idéal pour une image que tu redessines de toute façon.
+
+Un joueur voit une carte tant qu'il la **porte**, tant qu'elle lui est **montrée**
+(`view.show(player)` / `hide(player)`), ou tant qu'elle est **accrochée** dans un cadre que lui seul
+voit :
+
+```java
+final MapFrame cadre = tableau.hang(player, Position.block(10, 65, 10), BlockFace.NORTH, true);
+// cadre.remove() la décroche
+```
+
+## Dessiner
+
+Un pixel de carte est un octet : une des couleurs de base du client (`MapColor`) dans une de quatre
+nuances. La palette fait la conversion :
+
+```java
+final MapPalette palette = cartes.palette();
+final byte rose = palette.pixel(MapColor.COLOR_PINK);
+final byte noir = palette.pixel(MapColor.COLOR_BLACK, MapShade.DEEP_SHADOW);
+final byte proche = palette.closest(0x7A3CF0);   // la couleur la plus proche d'une valeur RGB
+```
+
+On dessine ensuite sur le canevas de la carte. `(0, 0)` est le coin en haut à gauche :
+
+```java
+final MapCanvas canevas = tableau.canvas();
+canevas.batch(c -> {
+    c.fill(palette.pixel(MapColor.SNOW));
+    c.rectangle(4, 4, 120, 120, rose);
+    c.line(4, 4, 123, 123, rose);
+    c.text(10, 10, "Fidorial", noir);
+});
+```
+
+`batch` regroupe les modifications pour que les joueurs les reçoivent en une seule mise à jour. Les
+changements arrivent aux joueurs au tick suivant, ou tout de suite avec `view.flush()`. Une carte
+peut s'utiliser depuis n'importe quel thread.
+
+### Images
+
+`cartes.image(...)` convertit une image aux couleurs des cartes, avec ou sans tramage. Une image plus
+grande que 128×128 se découpe en tuiles, une par carte :
+
+```java
+final BufferedImage logo = ImageIO.read(ctx.dataFolder().resolve("logo.png").toFile());
+final MapImage image = cartes.image(logo, 256, 256, MapImage.Dithering.ERROR_DIFFUSION);
+
+for (int ligne = 0; ligne < image.rows(); ligne++) {
+    for (int colonne = 0; colonne < image.columns(); colonne++) {
+        final MapView tuile = cartes.createBlank();
+        tuile.canvas().draw(image.tile(colonne, ligne), 0, 0);
+        // accroche les tuiles côte à côte pour reconstituer l'image
+    }
+}
+```
+
+### Du texte avec un composant
+
+`canvas.text(x, y, composant, police, pixel, ombre)` écrit un composant Adventure avec une
+`MapFont` : `cartes.standardFont()` est la police vanilla des cartes, et `cartes.fontBuilder(...)`
+permet de dessiner tes propres glyphes.
+
+## Calques
+
+Un **calque** peint par-dessus une carte **sans changer ce qu'elle stocke**. Il est soit partagé
+(peint une fois pour tout le monde), soit par joueur (peint une fois pour chaque joueur qui voit la
+carte), et peut se repeindre tous les N ticks :
+
+```java
+final MapLayer salut = cartes.layer(MapLayer.Scope.PER_VIEWER, 20, context -> {
+    final String nom = context.viewer().map(Player::name).orElse("?");
+    context.canvas().text(4, 116, "Salut " + nom + " !", palette.pixel(MapColor.COLOR_BLACK));
+});
+tableau.addLayer(salut);
+```
+
+Avec un intervalle de `0`, le calque n'est repeint que quand tu appelles `view.repaint()` (et, pour
+un calque par joueur, quand quelqu'un commence à voir la carte).
+
+<Aside type="caution">
+	Les calques sont peints en dehors des threads de région. Garde-les rapides, et ne touche pas au
+	monde depuis un calque : lis ce dont tu as besoin avant.
+</Aside>
+
+## Icônes
+
+Les icônes (flèches de joueur, bannières, croix…) sont des **marqueurs** stockés sur la carte, ou
+des décorations qu'un calque ajoute au vol avec `context.decorate(...)`. Les positions sont en
+pixels du canevas ; `pixelX` et `pixelY` convertissent des coordonnées du monde :
+
+```java
+tableau.markers().put(Key.key("monplugin", "tresor"), new MapDecoration(
+        MapDecorationTypeKeys.RED_X,
+        terrain.pixelX(120), terrain.pixelY(-45),
+        0,                                  // orientation, en seizièmes de tour
+        Component.text("Trésor")));
+```
+
+`MapView` contrôle aussi le comportement vanilla : `tracksPlayers(true)` affiche les flèches des
+joueurs, `locked(true)` fige le terrain, et `cartes.zoomedOut(view)` / `cartes.lockedCopy(view)`
+font comme la table de cartographie.
+
+## Quand un joueur crée une carte
+
+`PlayerCreateMapEvent` est publié quand un joueur utilise une carte vierge. Tu peux l'annuler, ou
+déplacer et changer l'échelle de la nouvelle carte :
+
+```java
+ctx.events().subscribe(PlayerCreateMapEvent.class, event -> {
+    event.center(0, 0);                 // toutes les cartes montrent le spawn
+    event.scale(MapScale.ONE_TO_FOUR);
+});
+```

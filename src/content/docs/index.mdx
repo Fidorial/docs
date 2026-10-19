@@ -37,12 +37,17 @@ Fidorial has no Forge, no Fabric and no Mixin. A plugin acts on the server in tw
 	</Card>
 </CardGrid>
 
-The world is split into **regions** of 32×32 chunks, each ticked on its own : see
+The world is split into **regions** (32×32 chunks by default, configurable), each ticked on its own: see
 [Threads and regions](/guides/threads/).
 
 ## Where to start
 
 <CardGrid>
+	<LinkCard
+		title="Run a server"
+		description="Download Fidorial, start it, and find your way around its files."
+		href="/getting-started/server/"
+	/>
 	<LinkCard
 		title="Create a plugin"
 		description="Gradle project, fidorial.json, main class: your first plugin from start to finish."
@@ -63,6 +68,22 @@ The world is split into **regions** of 32×32 chunks, each ticked on its own : s
 		description="Which thread your code runs on, and how to switch threads safely."
 		href="/guides/threads/"
 	/>
+	<LinkCard
+		title="Compatible plugins"
+		description="Plugins that already run on Fidorial, and how to list yours."
+		href="/ecosystem/plugins/"
+	/>
+</CardGrid>
+
+## Going further
+
+<CardGrid>
+	<LinkCard title="Players and entities" href="/guides/players/" description="Messages, teleports, effects, bans." />
+	<LinkCard title="Items and inventories" href="/guides/items/" description="Item stacks, data components, inventories." />
+	<LinkCard title="Permissions" href="/guides/permissions/" description="Nodes, grants, plugging in a permission manager." />
+	<LinkCard title="Dialogs" href="/guides/dialogs/" description="Native screens with buttons and forms." />
+	<LinkCard title="Custom mobs and effects" href="/guides/mobs/" description="New mobs, AI goals, potion effects." />
+	<LinkCard title="Maps" href="/guides/maps/" description="Draw, show images, per-player layers." />
 </CardGrid>
 
 ## Useful links

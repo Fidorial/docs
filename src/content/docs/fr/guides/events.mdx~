@@ -1,0 +1,186 @@
+---
+title: Événements
+description: S'abonner aux événements du serveur, choisir une priorité, modifier ou annuler une action.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Un événement est un objet que le serveur publie quand il se passe quelque chose : un bloc est
+cassé, un joueur parle, le serveur démarre… Un plugin s'y abonne pour être prévenu, et parfois pour
+changer ce qui va se passer.
+
+## S'abonner
+
+On s'abonne avec `ctx.events().subscribe(Type.class, listener)`, en général dans `onEnable()` :
+
+```java
+ctx.events().subscribe(PlayerJoinEvent.class, event ->
+        ctx.logger().info("{} vient d'arriver", event.player().name()));
+```
+
+Le listener est appelé à chaque fois que l'événement est publié. `subscribe` renvoie une
+`Subscription`, utile pour [se désabonner](#se-désabonner) plus tard.
+
+## Annuler une action
+
+Les événements qui implémentent `Cancellable` décrivent une action **qui n'a pas encore eu lieu**.
+Si l'événement est annulé, le serveur ne fait pas l'action :
+
+```java
+ctx.events().subscribe(BlockBreakEvent.class, EventPriority.HIGH, event -> {
+    if (event.position().y() < 0) {
+        event.setCancelled(true);
+        event.player().sendMessage(Component.text("Pas sous la couche 0 !", NamedTextColor.RED));
+    }
+});
+```
+
+Ici, le bloc reste en place et le client est resynchronisé. Il n'y a ni paquet envoyé aux autres
+joueurs, ni écriture sur le disque, ni mise à jour des fluides.
+
+<Aside type="note">
+	Annuler un événement n'arrête pas sa distribution : les listeners suivants sont quand même
+	appelés et peuvent le « dés-annuler » avec `setCancelled(false)`. Le serveur ne regarde le
+	drapeau qu'une fois tous les listeners passés.
+</Aside>
+
+## Modifier un événement
+
+Certains événements ont des setters. Par exemple, on peut réécrire un message de chat avant
+qu'il soit diffusé :
+
+```java
+ctx.events().subscribe(PlayerChatEvent.class, event -> {
+    final String texte = PlainTextComponentSerializer.plainText().serialize(event.message());
+    if (texte.contains("mot interdit")) {
+        event.setCancelled(true);
+        return;
+    }
+    event.setMessage(event.message().color(NamedTextColor.AQUA));
+});
+```
+
+## Les priorités
+
+Quand plusieurs listeners écoutent le même événement, ils sont appelés de `LOWEST` à `MONITOR` :
+
+| Priorité | Usage |
+| --- | --- |
+| `LOWEST`, `LOW` | Passer en premier, et laisser les autres revenir sur ta décision. |
+| `NORMAL` | La valeur par défaut. |
+| `HIGH`, `HIGHEST` | Passer après les autres, donc avoir le dernier mot. |
+| `MONITOR` | Observer le résultat final. **Ne modifie jamais l'événement** à cette priorité. |
+
+Un listener `MONITOR` sert typiquement aux logs ou aux statistiques :
+
+```java
+ctx.events().subscribe(BlockPlaceEvent.class, EventPriority.MONITOR, event -> {
+    if (!event.isCancelled()) {
+        ctx.logger().info("{} a posé un bloc en {}", event.player().name(), event.position());
+    }
+});
+```
+
+## Écouter toute une famille
+
+S'abonner à un type, c'est aussi recevoir **tous ses sous-types**. Tous les événements liés à un
+joueur implémentent `PlayerEvent` :
+
+```java
+ctx.events().subscribe(PlayerEvent.class, event ->
+        ctx.logger().debug("{} : {}", event.getClass().getSimpleName(), event.player().name()));
+```
+
+De même, `PlayerSignedChatEvent` hérite de `PlayerChatEvent`. Un listener sur `PlayerChatEvent`
+voit donc passer les messages signés comme les autres.
+
+## Sur quel thread ?
+
+Le listener tourne **sur le thread qui publie l'événement**, de façon synchrone. Selon l'événement,
+ce n'est pas le même thread :
+
+- `BlockBreakEvent`, `BlockPlaceEvent` et `PlayerJoinEvent` sont publiés sur le **thread de la
+  région** qui possède le bloc ou le joueur ;
+- le chat, la connexion, le ping de la liste des serveurs et, pour l'instant, les attaques d'un
+  joueur (`PlayerAttackEntityEvent` et les dégâts qui suivent) passent par les **threads réseau** ;
+- `ServerStartedEvent` et `ServerStoppingEvent` sont publiés par le thread qui démarre ou arrête
+  le serveur.
+
+Pour les autres, ne suppose rien.
+
+Dans tous les cas : **ne bloque jamais un listener** (pas d'I/O, pas d'attente). Pour agir sur un
+joueur ou une entité depuis un autre thread, passe par `player.execute(...)`. Tout est expliqué
+dans [Threads et régions](/fr/guides/threads/).
+
+Si un listener lève une exception, elle est loguée avec le nom du plugin, et les autres listeners
+sont quand même appelés.
+
+## Se désabonner
+
+Le serveur retire tout seul, à la désactivation du plugin, les abonnements faits **pendant
+`onLoad()` ou `onEnable()`**. C'est le cas le plus courant.
+
+<Aside type="caution" title="Abonnements faits plus tard">
+	Un abonnement fait ailleurs (dans une commande, une tâche planifiée, un autre listener…) n'est
+	pas rattaché à ton plugin et **ne sera pas retiré automatiquement**. Garde la `Subscription` et
+	ferme-la toi-même dans `onDisable()`.
+</Aside>
+
+```java
+private Subscription espion;
+
+// n'importe où :
+espion = ctx.events().subscribe(PlayerChatEvent.class, event -> { /* ... */ });
+
+@Override
+public void onDisable() {
+    espion.unsubscribe(); // ou espion.close()
+}
+```
+
+## Refuser une connexion
+
+`PlayerLoginAttemptEvent` est annulable, mais mieux vaut utiliser `refuse(...)`, qui annule
+**et** donne une raison au joueur :
+
+```java
+ctx.events().subscribe(PlayerLoginAttemptEvent.class, event -> {
+    if (event.profile().name().startsWith("Bot")) {
+        event.refuse(Component.text("Les bots ne sont pas les bienvenus."));
+    }
+});
+```
+
+Un joueur banni ou absent de la whitelist arrive déjà refusé dans l'événement. Un listener peut
+le laisser entrer avec `setCancelled(false)`.
+
+## Liste des événements
+
+Tous les événements sont dans `fr.fidorial.event` et ses sous-packages.
+
+| Événement | Annulable | Publié quand… |
+| --- | :---: | --- |
+| `server.ServerStartedEvent` | | le serveur a fini de démarrer (mondes chargés, plugins activés, réseau ouvert). |
+| `server.ServerStoppingEvent` | | le serveur commence à s'arrêter, avant d'expulser les joueurs. |
+| `server.ServerStatusRequestEvent` | | un client demande le statut affiché dans la liste des serveurs. |
+| `server.GameRuleChangeEvent` | ✔ | juste avant qu'une game rule change. |
+| `player.PlayerLoginAttemptEvent` | ✔ | un client essaie de se connecter. |
+| `player.PlayerJoinEvent` | | un joueur est entré dans le monde. |
+| `player.PlayerQuitEvent` | | un joueur quitte le monde. |
+| `player.PlayerChatEvent` | ✔ | un joueur envoie un message, avant sa diffusion. |
+| `player.PlayerSignedChatEvent` | ✔ | idem, pour un message signé par le client (sous-type du précédent). |
+| `block.BlockBreakEvent` | ✔ | un joueur casse un bloc, avant qu'il soit retiré. |
+| `block.BlockPlaceEvent` | ✔ | un joueur pose un bloc, avant qu'il soit écrit dans le monde. |
+| `player.PlayerAttackEntityEvent` | ✔ | un joueur frappe une entité, avant les dégâts. |
+| `entity.EntityDamageEvent` | ✔ | une entité va subir des dégâts, avant armure et knockback. |
+| `entity.EntityDeathEvent` | | une entité meurt. |
+| `player.PlayerDeathEvent` | | un joueur meurt (sous-type du précédent). |
+| `player.PlayerRespawnEvent` | | un joueur mort clique sur « Réapparaître ». |
+| `player.PlayerOpenEnderChestEvent` | ✔ | un joueur va ouvrir un ender chest. |
+| `player.PlayerDialogActionEvent` | | un joueur clique sur un bouton de dialogue à action personnalisée. |
+| `player.PlayerPostEffectsModifyEvent` | ✔ | les post-effets d'un joueur vont changer. |
+
+<Aside type="caution">
+	`PlayerMoveEvent` existe dans l'API mais **n'est pas encore publié** par le serveur : t'y abonner
+	n'a aucun effet pour l'instant.
+</Aside>

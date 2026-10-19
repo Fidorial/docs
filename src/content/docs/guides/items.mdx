@@ -1,0 +1,128 @@
+---
+title: Items and inventories
+description: Build item stacks with data components, read and change player inventories, react to item events.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Item stacks
+
+An `ItemStack` is an **immutable** record: an item id, a count, and **data components** (custom
+name, lore, durability…). Every "change" returns a new stack.
+
+```java
+final ItemStack diamonds = ItemStack.of(ItemKeys.DIAMOND.key(), 16);
+final ItemStack apple = ItemStack.of(Key.key("apple"));     // count 1
+
+final ItemStack sword = ItemStack.builder(ItemKeys.NETHERITE_SWORD.key())
+        .set(DataComponentTypes.CUSTOM_NAME, Component.text("Fidorial's Fang", NamedTextColor.LIGHT_PURPLE)
+                .decoration(TextDecoration.ITALIC, false))
+        .set(DataComponentTypes.LORE, ItemLore.of(
+                Component.text("Forged in the depths of the Nether.")))
+        .set(DataComponentTypes.MAX_DAMAGE, 250)
+        .build();
+```
+
+<Aside type="caution" title="Keep the result">
+	Since a stack never changes, `stack.edit(...)`, `with(...)` or `withCount(...)` on its own does
+	nothing visible: use the stack it returns.
+
+	```java
+	held.with(DataComponentTypes.DAMAGE, 10);          // lost
+	held = held.with(DataComponentTypes.DAMAGE, 10);   // kept
+	```
+</Aside>
+
+### Data components
+
+The supported components are in `DataComponentTypes`:
+
+| Component | Type | Purpose |
+| --- | --- | --- |
+| `CUSTOM_NAME` | `Component` | Name given by a player or a plugin (shown in italics unless you disable it). |
+| `ITEM_NAME` | `Component` | Default name of the item, never italic. |
+| `LORE` | `ItemLore` | Lines under the name. |
+| `DAMAGE`, `MAX_DAMAGE` | `Integer` | Wear and durability. |
+| `MAX_STACK_SIZE` | `Integer` | How many fit in one slot. |
+| `ITEM_MODEL` | `Key` | Model used by the client, for resource packs. |
+| `ATTACK_ANIMATION`, `INTERACT_ANIMATION` | `SwingAnimation` | Arm animation when hitting or using. |
+| `MAP_ID`, `MAP_DECORATIONS` | `Integer`, `MapItemDecorations` | For `filled_map` items, see [Maps](/guides/maps/). |
+
+Read them with `get` (or `getOrDefault`), change them with `edit`:
+
+```java
+final Component name = stack.get(DataComponentTypes.CUSTOM_NAME);              // null if absent
+final int damage = stack.getOrDefault(DataComponentTypes.DAMAGE, 0);
+
+final ItemStack worn = stack.edit(components ->
+        components.set(DataComponentTypes.DAMAGE, damage + 1));
+
+final ItemStack plain = stack.without(DataComponentTypes.CUSTOM_NAME);
+```
+
+`isSimilar(other)` compares two stacks without their count; `isEmpty()` is true for air or a count
+of 0. `ItemStack.EMPTY` stands for an empty slot.
+
+## Player inventory
+
+`player.inventory()` is a container of 46 slots, numbered like vanilla:
+
+| Slots | Content |
+| --- | --- |
+| `0`–`8` | Hotbar (`HOTBAR_START`, `HOTBAR_SIZE`) |
+| `9`–`35` | Main inventory (`MAIN_START`) |
+| `36`, `37`, `38`, `39` | Feet, legs, chest, head (`FEET`, `LEGS`, `CHEST`, `HEAD`) |
+| `40` | Off hand (`OFF_HAND`) |
+
+```java
+player.execute(() -> {
+    final PlayerInventory inventory = player.inventory();
+
+    final int free = inventory.firstEmpty();          // -1 when full
+    if (free >= 0) {
+        inventory.set(free, ItemStack.of(ItemKeys.BREAD.key(), 8));
+    }
+    inventory.set(PlayerInventory.HEAD, ItemStack.of(ItemKeys.GOLDEN_HELMET.key()));
+
+    player.updateInventory();                         // send the changes to the client
+});
+```
+
+<Aside type="note">
+	The server does not resend the inventory after `set`: call `player.updateInventory()` once you
+	are done, or the client keeps showing the old content.
+</Aside>
+
+`player.heldItem()` and `player.setHeldItem(stack)` work on the selected hotbar slot
+(`selectedSlot()`). `player.enderChest()` is a 27-slot container with the same methods.
+
+Inventories are saved by the `PlayerInventoryStorage` and `PlayerEnderChestStorage`
+[services](/guides/services/#which-services-the-server-actually-uses), which you can replace to store
+them elsewhere.
+
+## Item events
+
+| Event | Cancellable | When |
+| --- | :---: | --- |
+| `PlayerUseItemEvent` | ✔ | Right click with an item in the air. `hand()` says which hand, `item()` what it holds. |
+| `PlayerDropItemEvent` | ✔ | The player drops the held item (`wholeStack()` for Ctrl+Q). |
+| `PlayerSwapHandItemsEvent` | ✔ | The player swaps main hand and off hand (F). |
+| `PlayerItemHeldEvent` | ✔ | The player selects another hotbar slot (`previousSlot()`, `newSlot()`). |
+
+For instance, a "teleport wand":
+
+```java
+ctx.events().subscribe(PlayerUseItemEvent.class, event -> {
+    final ItemStack item = event.item();
+    if (!item.id().equals(ItemKeys.BLAZE_ROD.key())
+            || !Component.text("Wand").equals(item.get(DataComponentTypes.CUSTOM_NAME))) {
+        return;
+    }
+    event.setCancelled(true);
+    final Player player = event.player();
+    player.teleport(player.location().offsetY(10));
+});
+```
+
+`PlayerUseItemEvent`, `PlayerDropItemEvent` and `PlayerSwapHandItemsEvent` are posted on the
+player's region thread, so you can change the player directly in the listener.

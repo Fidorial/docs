@@ -1,0 +1,167 @@
+---
+title: Permissions
+description: Déclarer des nœuds de permission, les tester, les accorder à la volée, ou brancher un gestionnaire de permissions complet.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Les joueurs et la console sont des `PermissionHolder`. Une permission est un **nœud**, un chemin à
+points comme `monplugin.home.set`, dont la valeur est un `TriState` : `TRUE`, `FALSE` ou `NOT_SET`
+(« pas d'avis »).
+
+```java
+if (player.hasPermission("monplugin.home.set")) { /* ... */ }  // vrai seulement pour TRUE
+player.permissionState("monplugin.home.set");                   // le TriState brut
+```
+
+Les nœuds sont en minuscules et peuvent contenir lettres, chiffres, `.`, `_`, `-` et `*`.
+
+## Comment un nœud est tranché
+
+Le serveur essaie, dans l'ordre, et s'arrête à la première réponse qui n'est pas `NOT_SET` :
+
+1. le **gestionnaire de permissions** branché comme [`PermissionResolver`](#brancher-un-gestionnaire-de-permissions), s'il y en a un ;
+2. pour le nœud lui-même, puis chaque **joker parent** (`monplugin.home.set` → `monplugin.home.*` →
+   `monplugin.*` → `*`) :
+   1. les **grants** que des plugins ont donnés à ce détenteur en cours de route ;
+   2. la **valeur par défaut** déclarée pour ce nœud, pour les opérateurs ou pour les joueurs normaux.
+
+Si rien ne tranche, la permission est **refusée**. Opérateurs et console compris : un nœud que
+personne n'a déclaré est refusé à tout le monde.
+
+## Déclarer des nœuds
+
+Déclare tes nœuds dans [`fidorial.json`](/fr/reference/fidorial-json/#permissions) ; ils sont retirés
+à l'arrêt du plugin.
+
+```json title="fidorial.json"
+"permissions": {
+  "monplugin.home.*": {
+    "description": "Toutes les commandes /home",
+    "regular": "NOT_SET",
+    "operator": "TRUE"
+  },
+  "monplugin.home.use": {
+    "description": "Se téléporter chez soi",
+    "regular": "TRUE",
+    "operator": "TRUE"
+  }
+}
+```
+
+Ici, les opérateurs obtiennent tous les nœuds `monplugin.home.…` grâce au joker, et tout le monde a
+`monplugin.home.use`.
+
+Tu peux aussi déclarer des nœuds dans le code, via le registre. Ceux-là ne sont **pas** retirés
+automatiquement : supprime-les dans `onDisable()`.
+
+```java
+final PermissionRegistry registre = ctx.server().registries().permissions();
+registre.define(PermissionDefinition.operatorOnly("monplugin.debug", "Outils de debug"));
+
+// dans onDisable() :
+registre.undefine(PermissionNode.of("monplugin.debug"));
+```
+
+| Raccourci | Joueurs normaux | Opérateurs |
+| --- | --- | --- |
+| `PermissionDefinition.everyone(nœud, description)` | `TRUE` | `TRUE` |
+| `PermissionDefinition.operatorOnly(nœud, description)` | `NOT_SET` | `TRUE` |
+| `PermissionDefinition.explicitOnly(nœud, description)` | `NOT_SET` | `NOT_SET` |
+| `PermissionDefinition.refused(nœud, description)` | `FALSE` | `FALSE` |
+
+## Accorder à la volée
+
+Un **grant** est un ensemble de surcharges qu'un plugin pose sur un détenteur : parfait pour un
+droit temporaire, un grade, un mini-jeu…
+
+```java
+final PermissionGrant grant = player.newGrant(this)   // "this" : ton Plugin
+        .allow("monplugin.fly")
+        .deny("monplugin.home.use");
+
+player.refreshCommands();   // pour que le client voie les commandes apparues ou disparues
+
+// plus tard :
+grant.revoke();             // ou grant.close(), il est AutoCloseable
+```
+
+Quand plusieurs grants touchent le même nœud, le plus récent l'emporte. Les grants ne sont pas
+sauvegardés : ils disparaissent quand le joueur se déconnecte.
+
+<Aside type="caution" title="Révoque tes grants dans onDisable()">
+	Les grants sont liés au joueur, pas au cycle de vie de ton plugin : le serveur ne les retire pas
+	quand ton plugin s'arrête. Garde-les et appelle `revoke()` dans `onDisable()`.
+</Aside>
+
+## Brancher un gestionnaire de permissions
+
+Pour prendre entièrement la main sur les permissions (groupes, base de données, panel web…),
+enregistre un [service](/fr/guides/services/) `PermissionResolver`. Le serveur l'interroge **en
+premier**, à chaque vérification :
+
+```java
+public final class GroupResolver implements PermissionResolver {
+
+    private final Map<UUID, Set<String>> accordes;   // rempli depuis ton stockage
+
+    public GroupResolver(final Map<UUID, Set<String>> accordes) {
+        this.accordes = accordes;
+    }
+
+    @Override
+    public TriState resolve(final PermissionHolder holder, final PermissionNode node) {
+        if (!(holder instanceof final Player player)) {
+            return TriState.NOT_SET;              // laisser le serveur décider pour la console
+        }
+        final Set<String> noeuds = accordes.get(player.uuid());
+        if (noeuds == null) {
+            return TriState.NOT_SET;
+        }
+        for (final PermissionNode candidat : node.lookupChain()) {   // nœud, parents.*, *
+            if (noeuds.contains(candidat.path())) {
+                return TriState.TRUE;
+            }
+        }
+        return TriState.NOT_SET;
+    }
+
+    @Override
+    public boolean cacheable() {
+        return false;   // les réponses peuvent changer à tout moment : redemande-moi à chaque fois
+    }
+}
+```
+
+```java
+ctx.services().register(PermissionResolver.class, new GroupResolver(groupes), this, ServicePriority.HIGH);
+```
+
+- Renvoie `NOT_SET` pour tout ce que tu ne gères pas : le serveur se rabat alors sur les grants et
+  les valeurs par défaut déclarées.
+- Un **seul** resolver est consulté, celui qui a la plus haute priorité de service.
+- Si `cacheable()` reste à `true`, le serveur mémorise chaque réponse jusqu'à ce que les
+  permissions déclarées changent, ou jusqu'à ce que tu appelles `holder.invalidatePermissions()`
+  (qui renvoie aussi les commandes du joueur).
+- `resolve` est appelé depuis n'importe quel thread, souvent en plein milieu d'une commande ou d'un
+  événement : reste rapide et ne bloque jamais sur de l'I/O.
+
+C'est exactement comme ça que le [portage de LuckPerms](/fr/ecosystem/plugins/#plugin-luckperms) se
+branche sur Fidorial.
+
+## Commandes et permissions
+
+Une commande protégée par `requires(source -> source.sender().hasPermission(...))` est cachée aux
+joueurs qui n'ont pas le nœud, complétion comprise (voir [Commandes](/fr/guides/commands/#les-permissions)).
+Le client ne s'en rend compte que quand il reçoit à nouveau l'arbre des commandes : appelle
+`player.refreshCommands()` après avoir changé ce qu'un joueur a le droit de faire.
+
+## Nœuds intégrés
+
+| Nœud | Par défaut | Rôle |
+| --- | --- | --- |
+| `fidorial.command.<nom>` | opérateurs | Chaque [commande intégrée](/fr/getting-started/server/#commandes-intégrées) : `fidorial.command.gamemode`, `fidorial.command.tps`… |
+| `fidorial.command.*`, `fidorial.*` | personne | Jokers pour accorder toutes les commandes, ou toutes les fonctionnalités. |
+| `minecraft.command.selector` | opérateurs | Utiliser les sélecteurs (`@a`, `@p`, `@e`, `@s`) dans les arguments. |
+| `spark`, `spark.*` | opérateurs | Le profileur spark intégré. |
+| `fidorial.debug.subscriptions` | opérateurs | Les rendus de debug du client. |

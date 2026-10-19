@@ -1,0 +1,88 @@
+---
+/**
+ * Renders the plugins from src/data/plugins.ts that match one support level.
+ *
+ *   <PluginList lang="en" support="official" />
+ */
+import { Badge, Icon } from '@astrojs/starlight/components';
+import { plugins, type Support } from '../data/plugins';
+
+interface Props {
+	lang: 'en' | 'fr';
+	support: Support;
+}
+
+const { lang, support } = Astro.props;
+
+const labels = {
+	en: {
+		official: 'Official support',
+		port: 'Unofficial port',
+		code: 'Source code',
+		branch: 'branch',
+		upstream: 'Original project',
+		by: 'By',
+		empty: 'Nothing here yet.',
+	},
+	fr: {
+		official: 'Support officiel',
+		port: 'Portage non officiel',
+		code: 'Code source',
+		branch: 'branche',
+		upstream: 'Projet d’origine',
+		by: 'Par',
+		empty: 'Rien pour le moment.',
+	},
+}[lang];
+
+const listed = plugins
+	.filter((plugin) => plugin.support === support)
+	.sort((a, b) => a.name.localeCompare(b.name));
+
+const repositoryLink = (repository: string, branch?: string) =>
+	branch ? `${repository}/tree/${branch}` : repository;
+---
+
+{
+	listed.length === 0 ? (
+		<p>{labels.empty}</p>
+	) : (
+		<ul class="fido-plugins not-content">
+			{listed.map((plugin) => (
+				<li class="fido-plugin">
+					<div class="fido-plugin__head">
+						<h3 class="fido-plugin__name" id={`plugin-${plugin.id}`}>
+							{plugin.name}
+						</h3>
+						<Badge
+							text={labels[plugin.support]}
+							variant={plugin.support === 'official' ? 'success' : 'caution'}
+						/>
+					</div>
+					<p class="fido-plugin__description">{plugin.description[lang]}</p>
+					{plugin.notes && <p class="fido-plugin__notes">{plugin.notes[lang]}</p>}
+					<p class="fido-plugin__meta">
+						{labels.by} {plugin.authors.join(', ')} · <code>{plugin.id}</code>
+					</p>
+					<div class="fido-plugin__links">
+						<a href={repositoryLink(plugin.repository, plugin.branch)} rel="noopener">
+							<Icon name="github" size="1.1em" />
+							{labels.code}
+							{plugin.branch && (
+								<span class="fido-plugin__branch">
+									({labels.branch} <code>{plugin.branch}</code>)
+								</span>
+							)}
+						</a>
+						{plugin.upstream && (
+							<a href={plugin.upstream} rel="noopener">
+								<Icon name="external" size="1.1em" />
+								{labels.upstream}
+							</a>
+						)}
+					</div>
+				</li>
+			))}
+		</ul>
+	)
+}
