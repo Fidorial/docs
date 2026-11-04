@@ -65,7 +65,7 @@ player.execute(() -> {
     player.setFireTicks(0);
     player.addEffect(ctx.server().registries().effects()
             .instance(MobEffectKeys.SPEED, 20 * 30, 1)); // 30 s of Speed II
-    player.setAttributeBase(AttributeKeys.SCALE.key(), 1.5);
+    player.setAttributeBase(AttributeKeys.SCALE, 1.5);
 });
 ```
 
@@ -121,7 +121,7 @@ for (final Entity entity : world.entities()) {
 world.entity(uuid);   // Optional
 
 // /summon also works with plugin mobs: see "Custom mobs and effects".
-ctx.server().registries().mobs().spawn(Key.key("cow"), player.location());
+ctx.server().registries().mobs().spawn(EntityTypeKeys.COW, player.location());
 ```
 
 ## Offline players

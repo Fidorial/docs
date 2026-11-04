@@ -28,7 +28,7 @@ is cancelled, the server does not perform the action:
 
 ```java
 ctx.events().subscribe(BlockBreakEvent.class, EventPriority.HIGH, event -> {
-    if (event.position().y() < 0) {
+    if (event.position().blockY() < 0) {
         event.setCancelled(true);
         event.player().sendMessage(Component.text("Not below layer 0!", NamedTextColor.RED));
     }
@@ -168,14 +168,24 @@ All events live in `fr.fidorial.event` and its subpackages.
 | `player.PlayerQuitEvent` | | a player leaves the world. |
 | `player.PlayerChatEvent` | ✔ | a player sends a message, before it is broadcast. |
 | `player.PlayerSignedChatEvent` | ✔ | same, for a message signed by the client (subtype of the previous one). |
+| `player.PlayerInputEvent` | | the player's pressed movement keys change. |
+| `player.PlayerSwingEvent` | ✔ | a player swings their arm. |
+| `player.PlayerUseItemEvent` | ✔ | a player uses an item in hand. |
+| `player.PlayerDropItemEvent` | ✔ | a player drops an item. |
+| `player.PlayerPickupItemEvent` | ✔ | a player is about to pick up an item from the ground. |
+| `player.PlayerSwapHandItemsEvent` | ✔ | a player swaps items between hands. |
+| `player.PlayerItemHeldEvent` | ✔ | a player selects another hotbar slot. |
+| `player.PlayerOpenInventoryEvent` | ✔ | a window opens over the player's inventory (including an ender chest). |
+| `player.PlayerPrepareCraftEvent` | | a crafting grid changes and its result is prepared. |
+| `player.PlayerCraftItemEvent` | ✔ | a player takes a crafting result. |
+| `player.PlayerCreateMapEvent` | ✔ | a player uses an empty map, before the map is created. |
 | `block.BlockBreakEvent` | ✔ | a player breaks a block, before it is removed. |
 | `block.BlockPlaceEvent` | ✔ | a player places a block, before it is written to the world. |
 | `player.PlayerAttackEntityEvent` | ✔ | a player hits an entity, before damage. |
 | `entity.EntityDamageEvent` | ✔ | an entity is about to take damage, before armour and knockback. |
 | `entity.EntityDeathEvent` | | an entity dies. |
-| `player.PlayerDeathEvent` | | a player dies (subtype of the previous one). |
+| `player.PlayerDeathEvent` | | a player dies (subtype of the previous one); you can change the death message and whether inventory is kept. |
 | `player.PlayerRespawnEvent` | | a dead player clicks "Respawn". |
-| `player.PlayerOpenEnderChestEvent` | ✔ | a player is about to open an ender chest. |
 | `player.PlayerDialogActionEvent` | | a player clicks a dialog button with a custom action. |
 | `player.PlayerPostEffectsModifyEvent` | ✔ | a player's post effects are about to change. |
 
