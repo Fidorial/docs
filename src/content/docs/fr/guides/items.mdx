@@ -1,0 +1,129 @@
+---
+title: Items et inventaires
+description: Construire des piles d'items avec des data components, lire et modifier l'inventaire des joueurs, réagir aux événements d'items.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+## Les piles d'items
+
+Un `ItemStack` est un record **immuable** : un identifiant d'item, une quantité, et des **data
+components** (nom personnalisé, lore, durabilité…). Chaque « modification » renvoie une nouvelle pile.
+
+```java
+final ItemStack diamants = ItemStack.of(ItemKeys.DIAMOND.key(), 16);
+final ItemStack pomme = ItemStack.of(Key.key("apple"));     // quantité 1
+
+final ItemStack epee = ItemStack.builder(ItemKeys.NETHERITE_SWORD.key())
+        .set(DataComponentTypes.CUSTOM_NAME, Component.text("Croc de Fidorial", NamedTextColor.LIGHT_PURPLE)
+                .decoration(TextDecoration.ITALIC, false))
+        .set(DataComponentTypes.LORE, ItemLore.of(
+                Component.text("Forgée dans les profondeurs du Nether.")))
+        .set(DataComponentTypes.MAX_DAMAGE, 250)
+        .build();
+```
+
+<Aside type="caution" title="Garde le résultat">
+	Comme une pile ne change jamais, `stack.edit(...)`, `with(...)` ou `withCount(...)` seul ne fait
+	rien de visible : utilise la pile renvoyée.
+
+	```java
+	tenu.with(DataComponentTypes.DAMAGE, 10);          // perdu
+	tenu = tenu.with(DataComponentTypes.DAMAGE, 10);   // conservé
+	```
+</Aside>
+
+### Les data components
+
+Les composants supportés sont dans `DataComponentTypes` :
+
+| Composant | Type | Rôle |
+| --- | --- | --- |
+| `CUSTOM_NAME` | `Component` | Nom donné par un joueur ou un plugin (en italique sauf si tu le désactives). |
+| `ITEM_NAME` | `Component` | Nom par défaut de l'item, jamais en italique. |
+| `LORE` | `ItemLore` | Lignes sous le nom. |
+| `DAMAGE`, `MAX_DAMAGE` | `Integer` | Usure et durabilité. |
+| `MAX_STACK_SIZE` | `Integer` | Combien tiennent dans un emplacement. |
+| `ITEM_MODEL` | `Key` | Modèle utilisé par le client, pour les resource packs. |
+| `ATTACK_ANIMATION`, `INTERACT_ANIMATION` | `SwingAnimation` | Animation du bras en frappant ou en utilisant. |
+| `MAP_ID`, `MAP_DECORATIONS` | `Integer`, `MapItemDecorations` | Pour les items `filled_map`, voir [Cartes](/fr/guides/maps/). |
+
+On les lit avec `get` (ou `getOrDefault`), on les change avec `edit` :
+
+```java
+final Component nom = pile.get(DataComponentTypes.CUSTOM_NAME);                // null si absent
+final int usure = pile.getOrDefault(DataComponentTypes.DAMAGE, 0);
+
+final ItemStack usee = pile.edit(components ->
+        components.set(DataComponentTypes.DAMAGE, usure + 1));
+
+final ItemStack simple = pile.without(DataComponentTypes.CUSTOM_NAME);
+```
+
+`isSimilar(autre)` compare deux piles sans leur quantité ; `isEmpty()` vaut vrai pour l'air ou une
+quantité de 0. `ItemStack.EMPTY` représente un emplacement vide.
+
+## L'inventaire du joueur
+
+`player.inventory()` est un conteneur de 46 emplacements, numérotés comme en vanilla :
+
+| Emplacements | Contenu |
+| --- | --- |
+| `0`–`8` | Barre d'action (`HOTBAR_START`, `HOTBAR_SIZE`) |
+| `9`–`35` | Inventaire principal (`MAIN_START`) |
+| `36`, `37`, `38`, `39` | Pieds, jambes, torse, tête (`FEET`, `LEGS`, `CHEST`, `HEAD`) |
+| `40` | Seconde main (`OFF_HAND`) |
+
+```java
+player.execute(() -> {
+    final PlayerInventory inventaire = player.inventory();
+
+    final int libre = inventaire.firstEmpty();        // -1 si plein
+    if (libre >= 0) {
+        inventaire.set(libre, ItemStack.of(ItemKeys.BREAD.key(), 8));
+    }
+    inventaire.set(PlayerInventory.HEAD, ItemStack.of(ItemKeys.GOLDEN_HELMET.key()));
+
+    player.updateInventory();                         // envoyer les changements au client
+});
+```
+
+<Aside type="note">
+	Le serveur ne renvoie pas l'inventaire après un `set` : appelle `player.updateInventory()` une fois
+	tes changements faits, sinon le client continue d'afficher l'ancien contenu.
+</Aside>
+
+`player.heldItem()` et `player.setHeldItem(pile)` agissent sur l'emplacement sélectionné de la
+barre d'action (`selectedSlot()`). `player.enderChest()` est un conteneur de 27 emplacements avec
+les mêmes méthodes.
+
+Les inventaires sont sauvegardés par les [services](/fr/guides/services/)
+`PlayerInventoryStorage` et `PlayerEnderChestStorage`, que tu peux remplacer pour les stocker
+ailleurs.
+
+## Les événements d'items
+
+| Événement | Annulable | Quand |
+| --- | :---: | --- |
+| `PlayerUseItemEvent` | ✔ | Clic droit avec un item dans le vide. `hand()` dit quelle main, `item()` ce qu'elle tient. |
+| `PlayerDropItemEvent` | ✔ | Le joueur jette l'item tenu (`wholeStack()` pour Ctrl+Q). |
+| `PlayerSwapHandItemsEvent` | ✔ | Le joueur échange main principale et seconde main (F). |
+| `PlayerItemHeldEvent` | ✔ | Le joueur sélectionne un autre emplacement de la barre (`previousSlot()`, `newSlot()`). |
+
+Par exemple, une « baguette de téléportation » :
+
+```java
+ctx.events().subscribe(PlayerUseItemEvent.class, event -> {
+    final ItemStack item = event.item();
+    if (!item.id().equals(ItemKeys.BLAZE_ROD.key())
+            || !Component.text("Baguette").equals(item.get(DataComponentTypes.CUSTOM_NAME))) {
+        return;
+    }
+    event.setCancelled(true);
+    final Player player = event.player();
+    player.teleport(player.location().offsetY(10));
+});
+```
+
+`PlayerUseItemEvent`, `PlayerDropItemEvent` et `PlayerSwapHandItemsEvent` sont publiés sur le
+thread de la région du joueur : tu peux modifier le joueur directement dans le listener.

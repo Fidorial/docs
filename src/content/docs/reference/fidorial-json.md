@@ -14,8 +14,13 @@ Every plugin contains a `fidorial.json` file **at the root of its jar**. A jar d
   "name": "My Plugin",
   "version": "1.2.0",
   "main": "com.example.myplugin.MyPlugin",
-  "authors": ["you", "a friend"],
-  "depends": ["otherplugin"],
+  "authors": [
+    "you",
+    "a friend"
+  ],
+  "depends": [
+    "otherplugin"
+  ],
   "permissions": {
     "myplugin.admin": {
       "description": "Access to admin commands",
@@ -33,16 +38,16 @@ Every plugin contains a `fidorial.json` file **at the root of its jar**. A jar d
 
 ## Fields
 
-| Field | Required | Type | Purpose |
-| --- | :---: | --- | --- |
-| `id` | ✔ | text | Unique identifier. Also used as the folder name (`plugins/<id>/`), the logger name (`plugin/<id>`) and the command namespace (`/<id>:command`). Short, lowercase, no spaces. |
-| `name` | ✔ | text | Display name. |
-| `version` | ✔ | text | Display version. No format enforced. |
-| `main` | ✔ | text | Fully qualified name of the class implementing `Plugin`. It needs a public no-argument constructor. |
-| `authors` | | list of text | The authors. |
-| `depends` | | list of `id`s | Plugins to load and enable **before** this one. |
-| `permissions` | | object | Permissions declared by the plugin (see below). |
-| `repositories` | | list of URLs | Maven repositories to download the plugin's libraries from (advanced, see below). |
+| Field          | Required | Type          | Purpose                                                                                                                                                                      |
+|----------------|:--------:|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `id`           |    ✔    | text          | Unique identifier. Also used as the folder name (`plugins/<id>/`), the logger name (`plugin/<id>`) and the command namespace (`/<id>:command`). Short, lowercase, no spaces. |
+| `name`         |    ✔    | text          | Display name.                                                                                                                                                                |
+| `version`      |    ✔    | text          | Display version. No format enforced.                                                                                                                                         |
+| `main`         |    ✔    | text          | Fully qualified name of the class implementing `Plugin`. It needs a public no-argument constructor.                                                                          |
+| `authors`      |          | list of text  | The authors.                                                                                                                                                                 |
+| `depends`      |          | list of `id`s | Plugins to load and enable **before** this one.                                                                                                                              |
+| `permissions`  |          | object        | Permissions declared by the plugin (see below).                                                                                                                              |
+| `repositories` |          | list of URLs  | Maven repositories to download the plugin's libraries from (advanced, see below).                                                                                            |
 
 Missing fields are read as empty lists or objects.
 
@@ -64,11 +69,11 @@ each plugin has its own class loader.
 
 Each entry of `permissions` is keyed by the **node** (for instance `myplugin.admin`) and contains:
 
-| Field | Purpose |
-| --- | --- |
-| `description` | What the permission allows. |
-| `regular` | Default value for regular players. |
-| `operator` | Default value for operators (and the console). |
+| Field         | Purpose                                        |
+|---------------|------------------------------------------------|
+| `description` | What the permission allows.                    |
+| `regular`     | Default value for regular players.             |
+| `operator`    | Default value for operators (and the console). |
 
 `regular` and `operator` are **required** and must be exactly `"TRUE"`, `"FALSE"` or `"NOT_SET"`, in
 uppercase. With any other value (`"true"`, for instance) or a missing field, the permission is

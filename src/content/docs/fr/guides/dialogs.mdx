@@ -1,0 +1,151 @@
+---
+title: Dialogues
+description: Afficher les écrans de dialogue natifs de Minecraft, avec boutons et champs de formulaire, et lire ce que le joueur a envoyé.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Depuis la 1.21.6, le client sait afficher des **dialogues** : des écrans natifs avec un titre, du
+texte, des champs de formulaire et des boutons. Fidorial les construit dans `fr.fidorial.dialog`,
+et les joueurs les affichent comme n'importe quel contenu Adventure.
+
+## Un premier dialogue
+
+```java
+player.showDialog(Dialog.notice(
+        Component.text("Bienvenue", NamedTextColor.GOLD),
+        Component.text("Lis les règles avec /regles avant de construire.")));
+```
+
+`showDialog` envoie le dialogue en entier : rien à enregistrer, ça marche à tout moment.
+`closeDialog()` ferme celui qui est ouvert.
+
+## Les types de dialogue
+
+| Type | Raccourci | Contenu |
+| --- | --- | --- |
+| `NoticeDialog` | `Dialog.notice(titre, message)` | Un message et un bouton (OK par défaut). |
+| `ConfirmationDialog` | `Dialog.confirmation(titre, message, oui, non)` | Deux boutons. |
+| `MultiActionDialog` | `Dialog.multiAction(titre, boutons)` | Une grille de boutons (2 colonnes par défaut), plus un bouton de sortie facultatif. |
+| `DialogListDialog` | | Des boutons qui mènent à d'autres dialogues. |
+| `ServerLinksDialog` | | Les liens du serveur annoncés au client. |
+
+Pour plus de contrôle, pars de `DialogBase.builder(titre)` :
+
+```java
+final DialogBase base = DialogBase.builder(Component.text("Réglages"))
+        .externalTitle(Component.text("Réglages"))     // libellé des boutons qui mènent ici
+        .body(Component.text("Choisis tes options."))
+        .body(DialogBody.item(ItemStack.of(ItemKeys.COMPASS.key())).build())
+        .canCloseWithEscape(true)
+        .afterAction(DialogAfterAction.CLOSE)          // CLOSE, NONE ou WAIT_FOR_RESPONSE
+        .build();
+```
+
+## Boutons et actions
+
+Un bouton, c'est un libellé, une infobulle facultative et une **action** :
+
+```java
+DialogActionButton.builder(Component.text("Spawn"))
+        .tooltip(Component.text("Retour au spawn"))
+        .action(DialogAction.runCommand("spawn"))
+        .build();
+```
+
+| Action | Effet |
+| --- | --- |
+| `runCommand("cmd")` | Exécute la commande en tant que le joueur (sans `/`). |
+| `suggestCommand("/cmd ")` | Met le texte dans la saisie du chat. |
+| `openUrl(url)`, `copyToClipboard(texte)` | Comme les click events du chat. |
+| `showDialog(dialogue)` | Ouvre un autre dialogue. |
+| `callback(audience -> …)` | Exécute ton code côté serveur. Simple, mais ne reçoit pas les valeurs des champs. |
+| `custom(id)` | Publie un `PlayerDialogActionEvent` avec cet id. |
+| `dynamicCustom(id)` | Pareil, **avec la valeur de chaque champ**. |
+| `dynamicRunCommand("say $(message)")` | Exécute une commande où `$(clé)` est remplacé par le champ `clé`. |
+
+## Formulaires
+
+Les champs se posent sur la base, chacun sous une **clé** :
+
+```java
+public static final Key ENVOI = Key.key("monplugin", "profil");
+
+final DialogBase base = DialogBase.builder(Component.text("Ton profil"))
+        .input(DialogInput.text("pseudo", Component.text("Pseudo"))
+                .initial("Steve")
+                .maxLength(16)
+                .build())
+        .input(DialogInput.checkbox("public", Component.text("Rendre mon profil visible")))
+        .input(DialogInput.singleOption("couleur", Component.text("Couleur"))
+                .option("rouge", Component.text("Rouge", NamedTextColor.RED))
+                .option("bleu", Component.text("Bleu", NamedTextColor.BLUE))
+                .build())
+        .input(DialogInput.numberRange("age", Component.text("Âge"), 7f, 99f)
+                .step(1f)
+                .initial(18f)
+                .build())
+        .build();
+
+player.showDialog(new MultiActionDialog(
+        base,
+        List.of(DialogActionButton.of(Component.text("Enregistrer"), DialogAction.dynamicCustom(ENVOI))),
+        1,
+        DialogActionButton.of(Component.text("Annuler"))));
+```
+
+Quand le joueur clique sur **Enregistrer**, le serveur publie un `PlayerDialogActionEvent` :
+
+```java
+ctx.events().subscribe(PlayerDialogActionEvent.class, event -> {
+    if (!event.id().equals(ENVOI)) {
+        return; // pas pour nous
+    }
+    final DialogResponse reponse = event.response();
+    final String pseudo = reponse.text("pseudo").orElse("");
+    final boolean visible = reponse.bool("public").orElse(false);
+    final String couleur = reponse.text("couleur").orElse("rouge");
+    final int age = (int) reponse.number("age").orElse(18);
+
+    final Player player = event.player();
+    player.execute(() -> enregistrerProfil(player, pseudo, visible, couleur, age));
+});
+```
+
+<Aside type="caution" title="Ne fais pas confiance à la réponse">
+	Le client envoie ces paquets quand il veut, avec l'id et les valeurs qu'il veut. Filtre toujours
+	sur l'id, et valide les valeurs (longueur, bornes, options autorisées) comme pour toute saisie
+	d'un joueur.
+</Aside>
+
+L'événement est publié depuis un **thread réseau** : passe sur le thread du joueur avec
+`player.execute(...)` avant de modifier le joueur ou le monde.
+
+`dynamicCustom(id, additions)` ajoute des champs fixes à la réponse : pratique pour distinguer
+plusieurs boutons d'un même formulaire (`additions` contenant `bouton: "enregistrer"` ou
+`bouton: "reinitialiser"`).
+
+## Dialogues enregistrés et menu pause
+
+Un dialogue peut aussi être **enregistré** sous une clé. Les dialogues enregistrés sont envoyés aux
+clients pendant leur connexion : on peut ensuite y faire référence par leur clé seule, et les
+ajouter au menu pause ou à la touche d'actions rapides :
+
+```java
+@Override
+public void onLoad(final PluginContext ctx) {
+    final DialogRegistry dialogues = ctx.server().registries().dialogs();
+    dialogues.register(Key.key("monplugin", "menu"), monMenu());
+    dialogues.addToPauseScreen(Key.key("monplugin", "menu"));
+    dialogues.addToQuickActions(Key.key("monplugin", "menu"));
+}
+
+// plus tard, n'importe où :
+player.showDialog(Dialog.reference(Key.key("monplugin", "menu")));
+```
+
+Enregistre-les dans `onLoad()` : les joueurs déjà connectés n'apprennent l'existence d'une nouvelle
+entrée qu'à leur prochain passage en phase de configuration. Retire-les dans `onDisable()` avec
+`dialogues.removeFromMenus(clé)` puis `dialogues.unregister(clé)`.
+
+`dialogues.registerFromJson(clé, json)` accepte un dialogue écrit au format des datapacks vanilla.

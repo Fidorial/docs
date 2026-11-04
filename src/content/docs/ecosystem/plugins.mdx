@@ -1,0 +1,91 @@
+---
+title: Compatible plugins
+description: Plugins known to run on Fidorial, official or ported, and how to add yours to the list.
+---
+
+import { Aside, Steps } from '@astrojs/starlight/components';
+import PluginList from '../../../components/PluginList.astro';
+
+Fidorial does not load Paper, Spigot or Fabric plugins: a plugin has to be written (or ported) against
+the [Fidorial API](/getting-started/first-plugin/). This page lists the ones that already run on it.
+
+<Aside type="caution" title="The API is still moving">
+	Until the API is stable, a plugin built for one Fidorial build may fail to load on another. Check
+	which Fidorial version a plugin targets (its README, its releases or its `fidorial-api`
+	dependency) before dropping it in `plugins/`.
+</Aside>
+
+## Official support
+
+These projects ship a Fidorial build themselves.
+
+<PluginList lang="en" support="official" />
+
+## Unofficial ports
+
+A **port** is a fork that adds Fidorial support to a plugin whose authors have not done it (yet).
+It is temporary by nature: the goal is to hand the work over to the original project, or to drop
+the fork once that project supports Fidorial on its own.
+
+<PluginList lang="en" support="port" />
+
+<Aside type="tip" title="Found a bug in a port?">
+	Report it to the fork, not to the original project: its authors do not maintain the Fidorial
+	version and cannot help.
+</Aside>
+
+## Support levels
+
+| Level | Meaning |
+| --- | --- |
+| **Official support** | The project itself publishes a Fidorial build, maintained alongside its other platforms. |
+| **Unofficial port** | A third-party fork keeps a Fidorial build alive until the original project takes over. |
+
+## Add your plugin
+
+The list lives in a single file, [`src/data/plugins.ts`](https://github.com/Fidorial/docs/blob/master/src/data/plugins.ts),
+shared by the English and French pages. To appear here:
+
+<Steps>
+
+1. **Check that your plugin qualifies.**
+
+   - Its source code is public, and it runs on a current Fidorial build.
+   - It is a real Fidorial plugin, with a [`fidorial.json`](/reference/fidorial-json/).
+   - For a port: the original project is credited and linked, and its licence allows the fork.
+
+2. **Add an entry to `plugins`.**
+
+   [Edit the file on GitHub](https://github.com/Fidorial/docs/edit/master/src/data/plugins.ts) and
+   append your plugin:
+
+   ```ts title="src/data/plugins.ts"
+   {
+       id: 'myplugin', // from fidorial.json
+       name: 'My Plugin',
+       repository: 'https://github.com/you/MyPlugin',
+       // branch: 'fidorial', // if not the default
+       // upstream: 'https://…', // ports only
+       authors: ['you'],
+       support: 'official', // or 'port'
+       description: {
+           en: 'What it does, in one or two sentences.',
+           fr: 'Ce qu’il fait, en une ou deux phrases.',
+       },
+       notes: { // optional
+           en: '…',
+           fr: '…',
+       },
+   },
+   ```
+
+3. **Open a pull request.**
+
+   Say in the description which Fidorial version you tested on. Questions are welcome on
+   [Discord](https://discord.gg/uUJQEB7XNN).
+
+</Steps>
+
+A plugin is removed from the list when it no longer loads on current builds and nobody answers
+about it, or, for a port, once the original project supports Fidorial itself (the entry then
+moves to **Official support**, pointing at the original project).

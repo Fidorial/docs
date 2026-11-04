@@ -1,0 +1,295 @@
+---
+title: Mobs et effets personnalisés
+description: Inventer des mobs avec leur propre IA, donner de nouveaux comportements aux mobs vanilla, et ajouter des effets de potion.
+---
+
+import { Aside, Tabs, TabItem } from '@astrojs/starlight/components';
+
+Fidorial fait tourner l'IA des mobs lui-même (objectifs, recherche de chemin A\* sur les threads
+`ai-workers`). Un plugin peut s'y brancher de trois façons : **déclarer un nouveau mob**,
+**greffer un comportement** à un mob existant, et **ajouter un effet de potion**.
+
+## Déclarer un mob
+
+Le client ne connaît que les types d'entités vanilla : un nouveau mob **ressemble donc** à un mob
+vanilla (son `networkType`), pendant que le serveur lui donne ses propres stats et son propre
+cerveau. Ici, un taureau qui a l'apparence d'une vache :
+
+```java
+public static final Key TAUREAU = Key.key("monplugin", "taureau");
+
+@Override
+public void onLoad(final PluginContext ctx) {
+    ctx.server().registries().mobs().register(
+            MobDefinition.builder(TAUREAU, Key.key("cow"))
+                    .maxHealth(24f)                   // en demi-cœurs
+                    .movementSpeed(0.28)              // en blocs par tick
+                    .size(0.95, 1.45)                 // hitbox, en blocs
+                    .followRange(24.0)                // portée de recherche de cible, 0 = jamais
+                    .attackDamage(5f)
+                    .soundSource(Sound.Source.HOSTILE)
+                    .behaviour(TaureauBehaviour::new) // une instance par taureau
+                    .persistent(true)                 // sauvegardé avec le monde
+                    .build(),
+            this);
+}
+```
+
+On peut alors l'invoquer avec `/summon monplugin:taureau`, ou depuis le code :
+
+```java
+ctx.server().registries().mobs().spawn(TAUREAU, player.location());   // Optional<Mob>
+```
+
+À l'arrêt de ton plugin, retire tout ce qu'il a déclaré avec
+`ctx.server().registries().mobs().unregisterAll(this)`.
+
+## Les comportements
+
+Un `MobBehaviour` est la moitié « plugin » d'un mob : **une instance par mob**, libre de garder
+l'état de ce mob. Toutes les méthodes sont facultatives.
+
+```java
+public final class TaureauBehaviour implements MobBehaviour {
+
+    private final Mob mob;
+
+    public TaureauBehaviour(final Mob mob) {
+        this.mob = mob;
+    }
+
+    @Override
+    public void onSpawn() {
+        mob.goals().add(new ChargeGoal(mob, 1));
+        mob.goals().add(new WanderGoal(mob, 5));
+    }
+
+    @Override
+    public void onHurt(final DamageSource source, final float amount) {
+        if (source.causingEntity() instanceof final Player attaquant) {
+            mob.setTarget(attaquant);
+        }
+    }
+
+    @Override
+    public boolean onInteract(final Player player, final EquipmentSlotGroup hand) {
+        mob.lookAt(player);
+        return false;   // true pour bloquer le comportement vanilla
+    }
+}
+```
+
+| Méthode | Appelée |
+| --- | --- |
+| `onSpawn()` | Une fois, juste après la création du mob, avant son premier tick. Ajoute les objectifs ici. |
+| `onTick(tick)` | À chaque tick, après les objectifs. |
+| `onHurt(source, montant)` | Après que le mob a réellement perdu de la vie. |
+| `onDeath()` | Quand il n'a plus de vie, avant l'animation de mort. |
+| `onRemove()` | Quand il quitte le monde (mort ou déchargement). |
+| `onInteract(joueur, main)` | Quand un joueur fait un clic droit dessus. |
+
+Les comportements tournent sur le **thread de la région** du mob : tu peux modifier le mob et les
+blocs autour directement, mais ne bloque jamais.
+
+### Modifier un mob vanilla
+
+`attach` ajoute un comportement à chaque mob d'un type qui apparaît **à partir de maintenant**,
+vanilla compris :
+
+```java
+// Toutes les nouvelles vaches chargent les joueurs.
+ctx.server().registries().mobs().attach(Key.key("cow"), TaureauBehaviour::new, this);
+```
+
+`mob.behaviour(TaureauBehaviour.class)` retrouve ton comportement sur un mob donné.
+
+## Les objectifs
+
+Un mob poursuit **un seul objectif à la fois**. À chaque tick, un objectif de meilleure priorité
+(un nombre **plus petit**) qui peut démarrer (`canStart()`) prend la main ; l'objectif en cours
+s'arrête dès que `shouldContinue()` renvoie `false`.
+
+<Tabs>
+	<TabItem label="ChargeGoal.java">
+		```java
+		public final class ChargeGoal implements Goal {
+
+		    private final Mob mob;
+		    private final int priority;
+		    private int ticks;
+
+		    public ChargeGoal(final Mob mob, final int priority) {
+		        this.mob = mob;
+		        this.priority = priority;
+		    }
+
+		    @Override
+		    public int priority() {
+		        return priority;
+		    }
+
+		    @Override
+		    public boolean canStart() {
+		        final Player proche = mob.nearestPlayer(mob.followRange());
+		        if (proche == null || !mob.hasLineOfSightTo(proche)) {
+		            return false;
+		        }
+		        mob.setTarget(proche);
+		        return true;
+		    }
+
+		    @Override
+		    public boolean shouldContinue() {
+		        final Player cible = mob.target();
+		        return cible != null && cible.isAlive() && !mob.isDead()
+		                && mob.distanceSqTo(cible) < mob.followRange() * mob.followRange();
+		    }
+
+		    @Override
+		    public void tick() {
+		        final Player cible = mob.target();
+		        mob.lookAt(cible);
+		        if (++ticks % 10 == 1) {   // pas besoin de recalculer le chemin à chaque tick
+		            mob.navigateTo(cible.location(), mob.movementSpeed() * 1.5);
+		        }
+		        if (mob.distanceSqTo(cible) < 2.0) {
+		            cible.damage(DamageSource.mobAttack(mob), mob.attackDamage());
+		        }
+		    }
+
+		    @Override
+		    public void stop() {
+		        ticks = 0;
+		        mob.setTarget(null);
+		        mob.navigation().stop();
+		        mob.setMoveSpeed(0.0);
+		    }
+		}
+		```
+	</TabItem>
+	<TabItem label="WanderGoal.java">
+		```java
+		public final class WanderGoal implements Goal {
+
+		    private final Mob mob;
+		    private final int priority;
+
+		    public WanderGoal(final Mob mob, final int priority) {
+		        this.mob = mob;
+		        this.priority = priority;
+		    }
+
+		    @Override
+		    public int priority() {
+		        return priority;
+		    }
+
+		    @Override
+		    public boolean canStart() {
+		        return ThreadLocalRandom.current().nextInt(120) == 0;   // de temps en temps
+		    }
+
+		    @Override
+		    public boolean shouldContinue() {
+		        return mob.navigation().isNavigating();
+		    }
+
+		    @Override
+		    public void start() {
+		        final ThreadLocalRandom random = ThreadLocalRandom.current();
+		        final Location ici = mob.location();
+		        mob.navigateTo(ici.offset(random.nextInt(-8, 9), 0, random.nextInt(-8, 9)),
+		                mob.movementSpeed() * 0.6);
+		    }
+
+		    @Override
+		    public void stop() {
+		        mob.setMoveSpeed(0.0);
+		    }
+		}
+		```
+	</TabItem>
+</Tabs>
+
+`mob.goals()` propose aussi `remove`, `removeType(Class)`, `clear()` et `active()` (l'objectif en
+cours), pratiques pour vider l'IA d'un mob vanilla auquel tu as greffé un comportement.
+
+## Effets de potion
+
+### Donner des effets
+
+```java
+final MobEffectRegistry effets = ctx.server().registries().effects();
+
+player.addEffect(effets.instance(MobEffectKeys.REGENERATION, 20 * 10, 0));   // 10 s, niveau I
+
+player.addEffect(effets.builder(MobEffectKeys.NIGHT_VISION)
+        .duration(MobEffectInstance.INFINITE_DURATION)
+        .ambient(true)
+        .showIcon(false)
+        .build());
+```
+
+Chaque changement passe par `EntityEffectEvent` (annulable), avec l'action `ADDED`, `CHANGED`,
+`REMOVED` ou `EXPIRED`. Un listener peut aussi remplacer l'effet appliqué, par exemple pour en
+plafonner le niveau :
+
+```java
+ctx.events().subscribe(EntityEffectEvent.class, event -> {
+    final MobEffectInstance effet = event.effect();
+    if (effet != null && effet.amplifier() > 4) {
+        event.setEffect(effet.toBuilder().amplifier(4).build());
+    }
+});
+```
+
+### Ajouter un nouvel effet
+
+Un nouvel effet a besoin d'une clé, d'un comportement, et d'une façon d'être montré aux clients
+vanilla, qui ne connaissent que les effets vanilla : un **fallback** dont ils affichent l'icône à
+la place.
+
+```java
+public static final TypedKey<MobEffect> SAIGNEMENT =
+        TypedKey.create(RegistryKey.MOB_EFFECT, Key.key("monplugin", "saignement"));
+
+@Override
+public void onLoad(final PluginContext ctx) {
+    final MobEffectRegistry effets = ctx.server().registries().effects();
+    effets.register(effets.define(SAIGNEMENT)
+            .category(MobEffectDefinition.Category.HARMFUL)
+            .fallback(MobEffectKeys.POISON)   // les clients vanilla voient l'icône du Poison
+            .behaviour(new SaignementBehaviour())
+            .build(), this);
+}
+```
+
+```java
+final class SaignementBehaviour implements MobEffectBehaviour {
+
+    @Override
+    public void onTick(final LivingEntity entity, final MobEffectInstance effect) {
+        if (effect.duration() % 40 == 0) {   // toutes les 2 secondes
+            entity.damage(DamageSource.generic(), 1f + effect.amplifier());
+        }
+    }
+}
+```
+
+`MobEffectBehaviour` a `onApplied`, `onTick` et `onRemoved`. Une seule instance sert toutes les
+entités qui portent l'effet : garde l'état par entité dans une map indexée par UUID, et nettoie-la
+dans `onRemoved`.
+
+Tu peux aussi **greffer** un comportement à un effet vanilla, pour lui faire faire quelque chose
+qu'il ne fait pas encore sur Fidorial :
+
+```java
+effets.attach(MobEffectKeys.REGENERATION, new MaRegeneration(), this);
+```
+
+<Aside type="note">
+	Si tes joueurs utilisent un mod client qui connaît l'effet, `knownBy(player -> …)` leur envoie son
+	vrai id au lieu du fallback, et `networkId(n)` fixe l'id pour qu'il corresponde à celui du mod.
+</Aside>
+
+Retire tout avec `effets.unregisterAll(this)` dans `onDisable()`.

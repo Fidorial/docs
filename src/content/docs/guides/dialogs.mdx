@@ -1,0 +1,150 @@
+---
+title: Dialogs
+description: Show native Minecraft dialog screens, with buttons and form inputs, and read what the player submitted.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Since 1.21.6 the client can display **dialogs**: native screens with a title, text, form inputs
+and buttons. Fidorial builds them in `fr.fidorial.dialog`, and players show them like any Adventure
+content.
+
+## A first dialog
+
+```java
+player.showDialog(Dialog.notice(
+        Component.text("Welcome", NamedTextColor.GOLD),
+        Component.text("Read the rules with /rules before you start building.")));
+```
+
+`showDialog` sends the whole dialog: nothing to register, it works at any time. `closeDialog()`
+closes the open one.
+
+## The kinds of dialog
+
+| Type | Shortcut | Content |
+| --- | --- | --- |
+| `NoticeDialog` | `Dialog.notice(title, message)` | A message and one button (OK by default). |
+| `ConfirmationDialog` | `Dialog.confirmation(title, message, yes, no)` | Two buttons. |
+| `MultiActionDialog` | `Dialog.multiAction(title, buttons)` | A grid of buttons (2 columns by default), plus an optional exit button. |
+| `DialogListDialog` | | Buttons leading to other dialogs. |
+| `ServerLinksDialog` | | The server links advertised to the client. |
+
+For more control, start from `DialogBase.builder(title)`:
+
+```java
+final DialogBase base = DialogBase.builder(Component.text("Settings"))
+        .externalTitle(Component.text("Settings"))     // label on buttons leading here
+        .body(Component.text("Choose your options."))
+        .body(DialogBody.item(ItemStack.of(ItemKeys.COMPASS.key())).build())
+        .canCloseWithEscape(true)
+        .afterAction(DialogAfterAction.CLOSE)          // CLOSE, NONE or WAIT_FOR_RESPONSE
+        .build();
+```
+
+## Buttons and actions
+
+A button is a label, an optional tooltip and an **action**:
+
+```java
+DialogActionButton.builder(Component.text("Spawn"))
+        .tooltip(Component.text("Back to spawn"))
+        .action(DialogAction.runCommand("spawn"))
+        .build();
+```
+
+| Action | Effect |
+| --- | --- |
+| `runCommand("cmd")` | Runs the command as the player (no leading `/`). |
+| `suggestCommand("/cmd ")` | Puts the text in the chat input. |
+| `openUrl(url)`, `copyToClipboard(text)` | Like the chat click events. |
+| `showDialog(dialog)` | Opens another dialog. |
+| `callback(audience -> …)` | Runs your code on the server. Simple, but receives no input values. |
+| `custom(id)` | Posts a `PlayerDialogActionEvent` with that id. |
+| `dynamicCustom(id)` | Same, **with the value of every input**. |
+| `dynamicRunCommand("say $(message)")` | Runs a command where `$(key)` is replaced by the input `key`. |
+
+## Forms
+
+Inputs go on the base, each under a **key**:
+
+```java
+public static final Key SUBMIT = Key.key("myplugin", "profile");
+
+final DialogBase base = DialogBase.builder(Component.text("Your profile"))
+        .input(DialogInput.text("nickname", Component.text("Nickname"))
+                .initial("Steve")
+                .maxLength(16)
+                .build())
+        .input(DialogInput.checkbox("public", Component.text("Show my profile")))
+        .input(DialogInput.singleOption("color", Component.text("Colour"))
+                .option("red", Component.text("Red", NamedTextColor.RED))
+                .option("blue", Component.text("Blue", NamedTextColor.BLUE))
+                .build())
+        .input(DialogInput.numberRange("age", Component.text("Age"), 7f, 99f)
+                .step(1f)
+                .initial(18f)
+                .build())
+        .build();
+
+player.showDialog(new MultiActionDialog(
+        base,
+        List.of(DialogActionButton.of(Component.text("Save"), DialogAction.dynamicCustom(SUBMIT))),
+        1,
+        DialogActionButton.of(Component.text("Cancel"))));
+```
+
+When the player clicks **Save**, the server posts a `PlayerDialogActionEvent`:
+
+```java
+ctx.events().subscribe(PlayerDialogActionEvent.class, event -> {
+    if (!event.id().equals(SUBMIT)) {
+        return; // not ours
+    }
+    final DialogResponse response = event.response();
+    final String nickname = response.text("nickname").orElse("");
+    final boolean visible = response.bool("public").orElse(false);
+    final String color = response.text("color").orElse("red");
+    final int age = (int) response.number("age").orElse(18);
+
+    final Player player = event.player();
+    player.execute(() -> saveProfile(player, nickname, visible, color, age));
+});
+```
+
+<Aside type="caution" title="Do not trust the response">
+	The client sends these packets whenever it wants, with whatever id and values it likes. Always
+	filter on the id, and validate the values (length, range, allowed options) as you would for any
+	player input.
+</Aside>
+
+The event is posted from a **network thread**: hop onto the player's thread with
+`player.execute(...)` before changing the player or the world.
+
+`dynamicCustom(id, additions)` adds fixed fields to the response: handy to tell apart several
+buttons of the same form (`additions` holding `button: "save"` or `button: "reset"`).
+
+## Registered dialogs and the pause menu
+
+A dialog can also be **registered** under a key. Registered dialogs are sent to clients while they
+connect, so you can then refer to them by key only, and add them to the pause menu or to the quick
+actions key:
+
+```java
+@Override
+public void onLoad(final PluginContext ctx) {
+    final DialogRegistry dialogs = ctx.server().registries().dialogs();
+    dialogs.register(Key.key("myplugin", "menu"), myMenu());
+    dialogs.addToPauseScreen(Key.key("myplugin", "menu"));
+    dialogs.addToQuickActions(Key.key("myplugin", "menu"));
+}
+
+// later, anywhere:
+player.showDialog(Dialog.reference(Key.key("myplugin", "menu")));
+```
+
+Register them in `onLoad()`: players who are already connected only learn about a new entry the
+next time they go through the configuration phase. Remove them in `onDisable()` with
+`dialogs.removeFromMenus(key)` then `dialogs.unregister(key)`.
+
+`dialogs.registerFromJson(key, json)` accepts a dialog written in the vanilla datapack format.

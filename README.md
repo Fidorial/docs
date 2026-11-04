@@ -28,8 +28,8 @@ src/
 │   ├── guides/                   # events, commands, services, threads
 │   ├── reference/                # fidorial.json…
 │   └── fr/                       # French translation, same file paths
-└── styles/fidorial.css           # accent colours
-astro.config.mjs                  # title, links, sidebar, languages
+└── styles/fidorial.css           # colours (white, pink, violet), fonts, component tweaks
+astro.config.mjs                  # title, links, sidebar, languages, code theme
 ```
 
 ## Languages

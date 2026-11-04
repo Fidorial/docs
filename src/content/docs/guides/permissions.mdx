@@ -1,0 +1,164 @@
+---
+title: Permissions
+description: Declare permission nodes, check them, grant them at runtime, or plug in a whole permission manager.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+
+Players and the console are `PermissionHolder`s. A permission is a **node**, a dotted path such as
+`myplugin.home.set`, whose value is a `TriState`: `TRUE`, `FALSE` or `NOT_SET` ("no opinion").
+
+```java
+if (player.hasPermission("myplugin.home.set")) { /* ... */ }  // true only for TRUE
+player.permissionState("myplugin.home.set");                   // the raw TriState
+```
+
+Nodes are lowercase and may contain letters, digits, `.`, `_`, `-` and `*`.
+
+## How a node is decided
+
+The server tries, in order, and stops at the first answer that is not `NOT_SET`:
+
+1. the **permission manager** plugged in as a [`PermissionResolver`](#plugging-in-a-permission-manager), if any;
+2. for the node itself, then each **parent wildcard** (`myplugin.home.set` → `myplugin.home.*` →
+   `myplugin.*` → `*`):
+   1. the **grants** plugins gave this holder at runtime;
+   2. the **default** declared for that node, for operators or for regular players.
+
+If nothing decides, the permission is **denied**. That includes operators and the console: a node
+nobody declared is refused to everyone.
+
+## Declaring nodes
+
+Declare your nodes in [`fidorial.json`](/reference/fidorial-json/#permissions); they are removed
+when the plugin stops.
+
+```json title="fidorial.json"
+"permissions": {
+  "myplugin.home.*": {
+    "description": "Every /home command",
+    "regular": "NOT_SET",
+    "operator": "TRUE"
+  },
+  "myplugin.home.use": {
+    "description": "Teleport home",
+    "regular": "TRUE",
+    "operator": "TRUE"
+  }
+}
+```
+
+Here operators get every `myplugin.home.…` node through the wildcard, and everyone gets
+`myplugin.home.use`.
+
+You can also declare nodes in code, through the registry. Nodes declared this way are **not**
+removed automatically: undefine them in `onDisable()`.
+
+```java
+final PermissionRegistry registry = ctx.server().registries().permissions();
+registry.define(PermissionDefinition.operatorOnly("myplugin.debug", "Debug tools"));
+
+// in onDisable():
+registry.undefine(PermissionNode.of("myplugin.debug"));
+```
+
+| Shortcut | Regular players | Operators |
+| --- | --- | --- |
+| `PermissionDefinition.everyone(node, description)` | `TRUE` | `TRUE` |
+| `PermissionDefinition.operatorOnly(node, description)` | `NOT_SET` | `TRUE` |
+| `PermissionDefinition.explicitOnly(node, description)` | `NOT_SET` | `NOT_SET` |
+| `PermissionDefinition.refused(node, description)` | `FALSE` | `FALSE` |
+
+## Granting at runtime
+
+A **grant** is a set of overrides one plugin puts on one holder: perfect for a temporary right, a
+rank, a minigame…
+
+```java
+final PermissionGrant grant = player.newGrant(this)   // "this": your Plugin
+        .allow("myplugin.fly")
+        .deny("myplugin.home.use");
+
+player.refreshCommands();   // so the client sees the commands that just (dis)appeared
+
+// later:
+grant.revoke();             // or grant.close(), it is AutoCloseable
+```
+
+When several grants set the same node, the most recent one wins. Grants are not saved: they
+disappear when the player disconnects.
+
+<Aside type="caution" title="Revoke your grants in onDisable()">
+	Grants are tied to the player, not to your plugin's lifecycle: the server does not remove them when
+	your plugin stops. Keep them and call `revoke()` in `onDisable()`.
+</Aside>
+
+## Plugging in a permission manager
+
+To take over permissions entirely (groups, a database, a web panel…), register a
+`PermissionResolver` [service](/guides/services/). The server asks it **first**, for every check:
+
+```java
+public final class GroupResolver implements PermissionResolver {
+
+    private final Map<UUID, Set<String>> granted;   // filled from your storage
+
+    public GroupResolver(final Map<UUID, Set<String>> granted) {
+        this.granted = granted;
+    }
+
+    @Override
+    public TriState resolve(final PermissionHolder holder, final PermissionNode node) {
+        if (!(holder instanceof final Player player)) {
+            return TriState.NOT_SET;              // let the server decide for the console
+        }
+        final Set<String> nodes = granted.get(player.uuid());
+        if (nodes == null) {
+            return TriState.NOT_SET;
+        }
+        for (final PermissionNode candidate : node.lookupChain()) {   // node, parents.*, *
+            if (nodes.contains(candidate.path())) {
+                return TriState.TRUE;
+            }
+        }
+        return TriState.NOT_SET;
+    }
+
+    @Override
+    public boolean cacheable() {
+        return false;   // answers can change at any time: ask me every time
+    }
+}
+```
+
+```java
+ctx.services().register(PermissionResolver.class, new GroupResolver(groups), this, ServicePriority.HIGH);
+```
+
+- Return `NOT_SET` for whatever you do not handle: the server then falls back to grants and
+  declared defaults.
+- Only **one** resolver is consulted, the one with the highest service priority.
+- With `cacheable()` left at `true`, the server remembers each answer until the declared
+  permissions change, or until you call `holder.invalidatePermissions()` (which also resends the
+  player's commands).
+- `resolve` is called from any thread, often in the middle of a command or an event: keep it fast
+  and never block on I/O there.
+
+This is exactly how the [LuckPerms port](/ecosystem/plugins/#plugin-luckperms) plugs into Fidorial.
+
+## Commands and permissions
+
+A command guarded by `requires(source -> source.sender().hasPermission(...))` is hidden from players
+who lack the node, completion included (see [Commands](/guides/commands/#permissions)). The client
+only learns about the change when its command tree is resent: call `player.refreshCommands()` after
+changing what a player may do.
+
+## Built-in nodes
+
+| Node | Default | Purpose |
+| --- | --- | --- |
+| `fidorial.command.<name>` | operators | Each [built-in command](/getting-started/server/#built-in-commands): `fidorial.command.gamemode`, `fidorial.command.tps`… |
+| `fidorial.command.*`, `fidorial.*` | nobody | Wildcards to grant every command, or every feature. |
+| `minecraft.command.selector` | operators | Use selectors (`@a`, `@p`, `@e`, `@s`) in command arguments. |
+| `spark`, `spark.*` | operators | The built-in spark profiler. |
+| `fidorial.debug.subscriptions` | operators | Client debug renderers. |

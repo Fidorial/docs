@@ -18,8 +18,8 @@ hero:
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 :::caution[Projet à ses débuts]
-L'API de plugins change encore. Cette documentation suit la branche **dev/26.3**
-(Minecraft 26.3, API `0.1.0-SNAPSHOT`) et peut avoir un temps de retard sur le code.
+L'API de plugins change encore. Cette documentation suit la branche **dev/26.4**
+(Minecraft 26.4 Snapshot 4, API `0.1.0-SNAPSHOT`) et peut avoir un temps de retard sur le code.
 :::
 
 ## Deux idées à retenir
@@ -37,13 +37,18 @@ Fidorial n'utilise ni Forge, ni Fabric, ni Mixin. Un plugin agit sur le serveur 
 	</Card>
 </CardGrid>
 
-Le monde est découpé en **régions** de 32×32 chunks, chacune avec son propre thread. C'est ce qui
+Le monde est découpé en **régions** (32×32 chunks par défaut, réglable), chacune avec son propre thread. C'est ce qui
 rend le serveur multithread, et c'est la principale différence avec Paper ou Spigot quand on écrit
 un plugin : voir [Threads et régions](/fr/guides/threads/).
 
 ## Par où commencer
 
 <CardGrid>
+	<LinkCard
+		title="Lancer un serveur"
+		description="Télécharger Fidorial, le démarrer, et s'y retrouver dans ses fichiers."
+		href="/fr/getting-started/server/"
+	/>
 	<LinkCard
 		title="Créer un plugin"
 		description="Projet Gradle, fidorial.json, classe principale : ton premier plugin de bout en bout."
@@ -64,6 +69,22 @@ un plugin : voir [Threads et régions](/fr/guides/threads/).
 		description="Sur quel thread tourne ton code, et comment changer de thread proprement."
 		href="/fr/guides/threads/"
 	/>
+	<LinkCard
+		title="Plugins compatibles"
+		description="Les plugins qui tournent déjà sur Fidorial, et comment ajouter le tien."
+		href="/fr/ecosystem/plugins/"
+	/>
+</CardGrid>
+
+## Pour aller plus loin
+
+<CardGrid>
+	<LinkCard title="Joueurs et entités" href="/fr/guides/players/" description="Messages, téléportations, effets, bannissements." />
+	<LinkCard title="Items et inventaires" href="/fr/guides/items/" description="Piles d'items, data components, inventaires." />
+	<LinkCard title="Permissions" href="/fr/guides/permissions/" description="Nœuds, grants, brancher un gestionnaire de permissions." />
+	<LinkCard title="Dialogues" href="/fr/guides/dialogs/" description="Écrans natifs avec boutons et formulaires." />
+	<LinkCard title="Mobs et effets personnalisés" href="/fr/guides/mobs/" description="Nouveaux mobs, objectifs d'IA, effets de potion." />
+	<LinkCard title="Cartes" href="/fr/guides/maps/" description="Dessin, images, calques par joueur." />
 </CardGrid>
 
 ## Liens utiles
