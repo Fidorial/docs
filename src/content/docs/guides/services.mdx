@@ -99,17 +99,17 @@ flat world whose surface alternates between grass and stone, one chunk out of tw
 ```java title="CheckerboardGenerator.java"
 public final class CheckerboardGenerator implements WorldGenerator {
 
-    private static final Key BEDROCK = BlockTypeKeys.BEDROCK.key();
-    private static final Key DIRT = BlockTypeKeys.DIRT.key();
-    private static final Key GRASS = BlockTypeKeys.GRASS_BLOCK.key();
-    private static final Key STONE = BlockTypeKeys.STONE.key();
+    private static final TypedKey<BlockType> BEDROCK = BlockTypeKeys.BEDROCK;
+    private static final TypedKey<BlockType> DIRT = BlockTypeKeys.DIRT;
+    private static final TypedKey<BlockType> GRASS = BlockTypeKeys.GRASS_BLOCK;
+    private static final TypedKey<BlockType> STONE = BlockTypeKeys.STONE;
 
     private static final int SURFACE = 64;
 
     @Override
     public void generate(final GeneratedChunk chunk) {
         final boolean grass = ((chunk.chunkX() + chunk.chunkZ()) & 1) == 0;
-        final Key top = grass ? GRASS : STONE;
+        final TypedKey<BlockType> top = grass ? GRASS : STONE;
 
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
@@ -257,7 +257,7 @@ These services are registered by the server, and `get(...)` does return the serv
 implementation. But if you register your own, **the server will keep using its own** for now:
 
 `combat.CombatService`, `world.weather.WeatherManager`, `world.fluid.FluidManager`,
-`permission.PermissionRegistry`, `command.CommandRegistry`, `entity.OfflinePlayerManager`,
+`permission.PermissionRegistry`, `command.CommandRegistry`, `entity.player.OfflinePlayerManager`,
 `moderation.BanManager`, `moderation.WhitelistManager`, `entity.mob.MobRegistry`,
 `world.structure.StructureManager`, `gamerule.GameRules`.
 

@@ -99,17 +99,17 @@ monde plat dont la surface alterne herbe et pierre, un chunk sur deux :
 ```java title="GenerateurDamier.java"
 public final class GenerateurDamier implements WorldGenerator {
 
-    private static final Key BEDROCK = BlockTypeKeys.BEDROCK.key();
-    private static final Key DIRT = BlockTypeKeys.DIRT.key();
-    private static final Key GRASS = BlockTypeKeys.GRASS_BLOCK.key();
-    private static final Key STONE = BlockTypeKeys.STONE.key();
+    private static final TypedKey<BlockType> BEDROCK = BlockTypeKeys.BEDROCK;
+    private static final TypedKey<BlockType> DIRT = BlockTypeKeys.DIRT;
+    private static final TypedKey<BlockType> GRASS = BlockTypeKeys.GRASS_BLOCK;
+    private static final TypedKey<BlockType> STONE = BlockTypeKeys.STONE;
 
     private static final int SURFACE = 64;
 
     @Override
     public void generate(final GeneratedChunk chunk) {
         final boolean herbe = ((chunk.chunkX() + chunk.chunkZ()) & 1) == 0;
-        final Key dessus = herbe ? GRASS : STONE;
+        final TypedKey<BlockType> dessus = herbe ? GRASS : STONE;
 
         for (int x = 0; x < 16; x++) {
             for (int z = 0; z < 16; z++) {
@@ -259,7 +259,7 @@ serveur. Mais si tu enregistres la tienne, **le serveur continuera d'utiliser la
 l'instant :
 
 `combat.CombatService`, `world.weather.WeatherManager`, `world.fluid.FluidManager`,
-`permission.PermissionRegistry`, `command.CommandRegistry`, `entity.OfflinePlayerManager`,
+`permission.PermissionRegistry`, `command.CommandRegistry`, `entity.player.OfflinePlayerManager`,
 `moderation.BanManager`, `moderation.WhitelistManager`, `entity.mob.MobRegistry`,
 `world.structure.StructureManager`, `gamerule.GameRules`.
 

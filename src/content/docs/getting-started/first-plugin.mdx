@@ -207,9 +207,9 @@ It does **not** remove:
 No, and the simplest is not to have one. The server loads every plugin on the classpath, in a class
 loader of its own: a `module-info.java` would be ignored at runtime.
 
-If you want one anyway, it has to list every module you use (`requires fr.fidorial;`,
-`requires net.kyori.adventure.api;`…), because the API does not make them transitive. And since
-Brigadier is not a named module, you will need to compile with
+If you want one anyway, list `requires fr.fidorial;` and the other modules you use. The API exposes
+Adventure as transitive, so you do not need to require its modules separately. Brigadier is not a
+named module, so you will need to compile with
 `--add-reads <your.module>=ALL-UNNAMED`. That is what the test plugin in the repository does.
 
 ### What if my plugin uses another library?

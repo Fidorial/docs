@@ -36,7 +36,7 @@ Pour plus de contrôle, pars de `DialogBase.builder(titre)` :
 final DialogBase base = DialogBase.builder(Component.text("Réglages"))
         .externalTitle(Component.text("Réglages"))     // libellé des boutons qui mènent ici
         .body(Component.text("Choisis tes options."))
-        .body(DialogBody.item(ItemStack.of(ItemKeys.COMPASS.key())).build())
+        .body(DialogBody.item(ItemStack.of(ItemKeys.COMPASS)).build())
         .canCloseWithEscape(true)
         .afterAction(DialogAfterAction.CLOSE)          // CLOSE, NONE ou WAIT_FOR_RESPONSE
         .build();
@@ -132,20 +132,33 @@ clients pendant leur connexion : on peut ensuite y faire référence par leur cl
 ajouter au menu pause ou à la touche d'actions rapides :
 
 ```java
+private static final TypedKey<DialogDefinition> MENU = TypedKey.withRegistry(
+        RegistryKey.DIALOG, Key.key("monplugin", "menu"));
+
 @Override
 public void onLoad(final PluginContext ctx) {
-    final DialogRegistry dialogues = ctx.server().registries().dialogs();
-    dialogues.register(Key.key("monplugin", "menu"), monMenu());
-    dialogues.addToPauseScreen(Key.key("monplugin", "menu"));
-    dialogues.addToQuickActions(Key.key("monplugin", "menu"));
+    final WritableRegistry<DialogDefinition> dialogues = ctx.server().registries().writable(RegistryKey.DIALOG);
+    dialogues.register(MENU, monMenu(), this);
+    dialogues.addToTag(DialogTagKeys.PAUSE_SCREEN_ADDITIONS, MENU, this);
+    dialogues.addToTag(DialogTagKeys.QUICK_ACTIONS, MENU, this);
 }
 
 // plus tard, n'importe où :
-player.showDialog(Dialog.reference(Key.key("monplugin", "menu")));
+player.showDialog(Dialog.reference(MENU));
 ```
 
 Enregistre-les dans `onLoad()` : les joueurs déjà connectés n'apprennent l'existence d'une nouvelle
-entrée qu'à leur prochain passage en phase de configuration. Retire-les dans `onDisable()` avec
-`dialogues.removeFromMenus(clé)` puis `dialogues.unregister(clé)`.
+entrée qu'à leur prochain passage en phase de configuration. Retire les entrées des tags et
+l'enregistrement dans `onDisable()` :
 
-`dialogues.registerFromJson(clé, json)` accepte un dialogue écrit au format des datapacks vanilla.
+```java
+@Override
+public void onDisable() {
+    final WritableRegistry<DialogDefinition> dialogues = ctx.server().registries().writable(RegistryKey.DIALOG);
+    dialogues.removeFromTag(DialogTagKeys.PAUSE_SCREEN_ADDITIONS, MENU, this);
+    dialogues.removeFromTag(DialogTagKeys.QUICK_ACTIONS, MENU, this);
+    dialogues.unregisterAll(this);
+}
+```
+
+`dialogues.registerFromJson(MENU, json, this)` accepte un dialogue écrit au format des datapacks vanilla.

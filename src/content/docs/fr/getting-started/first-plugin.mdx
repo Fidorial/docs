@@ -208,9 +208,9 @@ Il ne retire **pas** :
 Non, et le plus simple est de ne pas en mettre. Le serveur charge chaque plugin sur le classpath,
 dans un classloader qui lui est propre : un `module-info.java` serait ignoré à l'exécution.
 
-Si tu en veux un quand même, il devra lister chaque module utilisé (`requires fr.fidorial;`,
-`requires net.kyori.adventure.api;`…), car l'API ne les rend pas transitifs. Et comme Brigadier
-n'est pas un module nommé, il faudra compiler avec `--add-reads <ton.module>=ALL-UNNAMED`. C'est ce
+Si tu en veux un quand même, déclare `requires fr.fidorial;` et les autres modules que tu utilises.
+L'API expose Adventure de façon transitive : tu n'as pas besoin de déclarer ses modules séparément.
+Brigadier n'est pas un module nommé : compile avec `--add-reads <ton.module>=ALL-UNNAMED`. C'est ce
 que fait le plugin de test du dépôt.
 
 ### Et si mon plugin utilise une autre bibliothèque ?

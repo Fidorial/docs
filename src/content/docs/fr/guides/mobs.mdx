@@ -16,12 +16,13 @@ vanilla (son `networkType`), pendant que le serveur lui donne ses propres stats 
 cerveau. Ici, un taureau qui a l'apparence d'une vache :
 
 ```java
-public static final Key TAUREAU = Key.key("monplugin", "taureau");
+public static final TypedKey<EntityType> TAUREAU = TypedKey.withRegistry(
+        RegistryKey.ENTITY_TYPE, Key.key("monplugin", "taureau"));
 
 @Override
 public void onLoad(final PluginContext ctx) {
     ctx.server().registries().mobs().register(
-            MobDefinition.builder(TAUREAU, Key.key("cow"))
+            MobDefinition.builder(TAUREAU, EntityTypeKeys.COW)
                     .maxHealth(24f)                   // en demi-cœurs
                     .movementSpeed(0.28)              // en blocs par tick
                     .size(0.95, 1.45)                 // hitbox, en blocs
@@ -98,7 +99,7 @@ vanilla compris :
 
 ```java
 // Toutes les nouvelles vaches chargent les joueurs.
-ctx.server().registries().mobs().attach(Key.key("cow"), TaureauBehaviour::new, this);
+ctx.server().registries().mobs().attach(EntityTypeKeys.COW, TaureauBehaviour::new, this);
 ```
 
 `mob.behaviour(TaureauBehaviour.class)` retrouve ton comportement sur un mob donné.
@@ -251,7 +252,7 @@ la place.
 
 ```java
 public static final TypedKey<MobEffect> SAIGNEMENT =
-        TypedKey.create(RegistryKey.MOB_EFFECT, Key.key("monplugin", "saignement"));
+        TypedKey.withRegistry(RegistryKey.MOB_EFFECT, Key.key("monplugin", "saignement"));
 
 @Override
 public void onLoad(final PluginContext ctx) {

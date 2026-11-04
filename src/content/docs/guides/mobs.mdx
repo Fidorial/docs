@@ -15,12 +15,13 @@ The client only knows vanilla entity types, so a new mob **looks like** a vanill
 `networkType`) while the server gives it its own stats and brain. Here, a bull that looks like a cow:
 
 ```java
-public static final Key BULL = Key.key("myplugin", "bull");
+public static final TypedKey<EntityType> BULL = TypedKey.withRegistry(
+        RegistryKey.ENTITY_TYPE, Key.key("myplugin", "bull"));
 
 @Override
 public void onLoad(final PluginContext ctx) {
     ctx.server().registries().mobs().register(
-            MobDefinition.builder(BULL, Key.key("cow"))
+            MobDefinition.builder(BULL, EntityTypeKeys.COW)
                     .maxHealth(24f)                 // half-hearts
                     .movementSpeed(0.28)            // blocks per tick
                     .size(0.95, 1.45)               // hitbox, in blocks
@@ -96,7 +97,7 @@ directly, but never block.
 
 ```java
 // Every new cow charges at players.
-ctx.server().registries().mobs().attach(Key.key("cow"), BullBehaviour::new, this);
+ctx.server().registries().mobs().attach(EntityTypeKeys.COW, BullBehaviour::new, this);
 ```
 
 `mob.behaviour(BullBehaviour.class)` finds your behaviour back on a given mob.
@@ -247,7 +248,7 @@ vanilla effects: a **fallback** whose icon they display instead.
 
 ```java
 public static final TypedKey<MobEffect> BLEEDING =
-        TypedKey.create(RegistryKey.MOB_EFFECT, Key.key("myplugin", "bleeding"));
+        TypedKey.withRegistry(RegistryKey.MOB_EFFECT, Key.key("myplugin", "bleeding"));
 
 @Override
 public void onLoad(final PluginContext ctx) {

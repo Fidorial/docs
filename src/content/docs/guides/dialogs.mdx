@@ -36,7 +36,7 @@ For more control, start from `DialogBase.builder(title)`:
 final DialogBase base = DialogBase.builder(Component.text("Settings"))
         .externalTitle(Component.text("Settings"))     // label on buttons leading here
         .body(Component.text("Choose your options."))
-        .body(DialogBody.item(ItemStack.of(ItemKeys.COMPASS.key())).build())
+        .body(DialogBody.item(ItemStack.of(ItemKeys.COMPASS)).build())
         .canCloseWithEscape(true)
         .afterAction(DialogAfterAction.CLOSE)          // CLOSE, NONE or WAIT_FOR_RESPONSE
         .build();
@@ -131,20 +131,33 @@ connect, so you can then refer to them by key only, and add them to the pause me
 actions key:
 
 ```java
+private static final TypedKey<DialogDefinition> MENU = TypedKey.withRegistry(
+        RegistryKey.DIALOG, Key.key("myplugin", "menu"));
+
 @Override
 public void onLoad(final PluginContext ctx) {
-    final DialogRegistry dialogs = ctx.server().registries().dialogs();
-    dialogs.register(Key.key("myplugin", "menu"), myMenu());
-    dialogs.addToPauseScreen(Key.key("myplugin", "menu"));
-    dialogs.addToQuickActions(Key.key("myplugin", "menu"));
+    final WritableRegistry<DialogDefinition> dialogs = ctx.server().registries().writable(RegistryKey.DIALOG);
+    dialogs.register(MENU, myMenu(), this);
+    dialogs.addToTag(DialogTagKeys.PAUSE_SCREEN_ADDITIONS, MENU, this);
+    dialogs.addToTag(DialogTagKeys.QUICK_ACTIONS, MENU, this);
 }
 
 // later, anywhere:
-player.showDialog(Dialog.reference(Key.key("myplugin", "menu")));
+player.showDialog(Dialog.reference(MENU));
 ```
 
 Register them in `onLoad()`: players who are already connected only learn about a new entry the
-next time they go through the configuration phase. Remove them in `onDisable()` with
-`dialogs.removeFromMenus(key)` then `dialogs.unregister(key)`.
+next time they go through the configuration phase. Remove the tag entries and registration in
+`onDisable()`:
 
-`dialogs.registerFromJson(key, json)` accepts a dialog written in the vanilla datapack format.
+```java
+@Override
+public void onDisable() {
+    final WritableRegistry<DialogDefinition> dialogs = ctx.server().registries().writable(RegistryKey.DIALOG);
+    dialogs.removeFromTag(DialogTagKeys.PAUSE_SCREEN_ADDITIONS, MENU, this);
+    dialogs.removeFromTag(DialogTagKeys.QUICK_ACTIONS, MENU, this);
+    dialogs.unregisterAll(this);
+}
+```
+
+`dialogs.registerFromJson(MENU, json, this)` accepts a dialog written in the vanilla datapack format.

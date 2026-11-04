@@ -11,10 +11,10 @@ An `ItemStack` is an **immutable** record: an item id, a count, and **data compo
 name, lore, durability…). Every "change" returns a new stack.
 
 ```java
-final ItemStack diamonds = ItemStack.of(ItemKeys.DIAMOND.key(), 16);
-final ItemStack apple = ItemStack.of(Key.key("apple"));     // count 1
+final ItemStack diamonds = ItemStack.of(ItemKeys.DIAMOND, 16);
+final ItemStack apple = ItemStack.of(TypedKey.withRegistry(RegistryKey.ITEM, Key.key("apple"))); // count 1
 
-final ItemStack sword = ItemStack.builder(ItemKeys.NETHERITE_SWORD.key())
+final ItemStack sword = ItemStack.builder(ItemKeys.NETHERITE_SWORD)
         .set(DataComponentTypes.CUSTOM_NAME, Component.text("Fidorial's Fang", NamedTextColor.LIGHT_PURPLE)
                 .decoration(TextDecoration.ITALIC, false))
         .set(DataComponentTypes.LORE, ItemLore.of(
@@ -80,9 +80,9 @@ player.execute(() -> {
 
     final int free = inventory.firstEmpty();          // -1 when full
     if (free >= 0) {
-        inventory.set(free, ItemStack.of(ItemKeys.BREAD.key(), 8));
+        inventory.set(free, ItemStack.of(ItemKeys.BREAD, 8));
     }
-    inventory.set(PlayerInventory.HEAD, ItemStack.of(ItemKeys.GOLDEN_HELMET.key()));
+    inventory.set(PlayerInventory.HEAD, ItemStack.of(ItemKeys.GOLDEN_HELMET));
 
     player.updateInventory();                         // send the changes to the client
 });
@@ -114,7 +114,7 @@ For instance, a "teleport wand":
 ```java
 ctx.events().subscribe(PlayerUseItemEvent.class, event -> {
     final ItemStack item = event.item();
-    if (!item.id().equals(ItemKeys.BLAZE_ROD.key())
+    if (!item.id().equals(ItemKeys.BLAZE_ROD)
             || !Component.text("Wand").equals(item.get(DataComponentTypes.CUSTOM_NAME))) {
         return;
     }
