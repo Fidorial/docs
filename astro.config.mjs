@@ -63,6 +63,11 @@ export default defineConfig({
                     translations: {fr: 'Démarrer'},
                     items: [
                         {
+                            label: 'Download the server',
+                            translations: {fr: 'Télécharger le serveur'},
+                            slug: 'download',
+                        },
+                        {
                             label: 'Create a plugin',
                             translations: {fr: 'Créer un plugin'},
                             slug: 'getting-started/first-plugin',

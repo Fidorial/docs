@@ -1,0 +1,70 @@
+---
+title: Télécharger
+description: Télécharger un build du serveur Fidorial pour ta version de Minecraft, branche par branche.
+---
+
+import { Aside } from '@astrojs/starlight/components';
+import ReleaseDownloads from '../../../components/ReleaseDownloads.astro';
+
+Chaque version de Minecraft prise en charge par Fidorial a sa propre branche : `dev/26.4` pour
+Minecraft 26.4, `dev/26.3` pour la 26.3, etc. Chaque push sur l'une de ces branches compile le serveur
+et le publie en pre-release sur GitHub. Choisis la branche qui correspond à la version de tes joueurs,
+puis prends son dernier build. Une branche qui a suivi plusieurs versions de Minecraft, comme les
+snapshots de la 26.4, a une seconde rangée pour choisir la version exacte.
+
+<Aside type="caution" title="Builds de développement">
+	Ce sont des builds de développement : des choses cassent, et un monde peut ne pas survivre à une
+	mise à jour. Garde une sauvegarde du dossier du serveur avant de remplacer le jar.
+</Aside>
+
+<ReleaseDownloads lang="fr" />
+
+## Quel fichier prendre
+
+Un build contient deux jars. Seul le premier t'est utile.
+
+| Fichier | Ce que c'est |
+| --- | --- |
+| `Fidorial-<version>.jar` | **Le serveur.** Un petit lanceur, plus le code de Fidorial. |
+| `fidorial-server-<version>.jar` | Les classes de Fidorial seules, sans le lanceur. Pas fait pour être démarré. |
+
+## Démarrer le serveur
+
+Fidorial demande **Java 25** ou plus récent. Place le jar dans un dossier vide et lance-le depuis
+celui-ci :
+
+```sh
+java -jar Fidorial-26.4-snapshot-8-build.43+0.1.0.jar
+```
+
+Au premier démarrage, le lanceur télécharge les bibliothèques dont le serveur a besoin dans
+`libraries/`, et vérifie chaque fichier avec sa somme SHA-256. Les démarrages suivants les
+réutilisent : seul le premier a besoin d'une connexion internet.
+
+## Lire une version
+
+Une version de build ressemble à `26.4-snapshot-8-build.43+0.1.0` :
+
+| Partie | Signification |
+| --- | --- |
+| `26.4-snapshot-8` | La version de Minecraft que parle le build : ici, 26.4 Snapshot 8. |
+| `build.43` | Le numéro du build sur cette branche, compté depuis le dernier changement de version de Minecraft. |
+| `0.1.0` | La version de Fidorial lui-même. |
+
+Chaque build publie aussi l'API des plugins sous la même version, indiquée dans **API des plugins**
+ci-dessus. Pour compiler un plugin contre exactement le serveur que tu fais tourner, mets cette
+version dans ton fichier de build (voir [Créer un plugin](/fr/getting-started/first-plugin/)).
+
+## Branches
+
+- **`dev/<version>`** : une branche par version de Minecraft. La plus récente reçoit les nouveautés ;
+  une plus ancienne ne reçoit plus de builds une fois que sa version n'est plus travaillée. Tant que
+  Minecraft publie des snapshots de cette version, la branche les suit, et chaque snapshot garde ses
+  propres builds.
+- **`master`** : les builds faits avant le passage à une branche par version de Minecraft. Gardés
+  pour référence.
+- **Stable** : apparaît en tête de liste dès qu'une version est taguée comme release.
+
+La liste est construite avec ce site, puis rafraîchie depuis
+[GitHub](https://github.com/Fidorial/Fidorial/releases) à l'ouverture de la page : le dernier build
+y est même avant que la documentation soit redéployée.

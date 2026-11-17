@@ -1,0 +1,482 @@
+---
+/**
+ * Fidorial server builds, one tab per branch (dev/26.4, dev/26.3…), from the GitHub releases.
+ *
+ *   <ReleaseDownloads lang="en" />
+ *
+ * The list is rendered when the site is built, then refreshed in the browser from the GitHub API, so
+ * builds published after the last deployment still show up. Set GITHUB_TOKEN when building to avoid
+ * the API's anonymous rate limit; if GitHub cannot be reached, the page is built without the list and
+ * the browser loads it. The parsing and the HTML live in src/lib/releases.ts.
+ */
+import {fetchBuildsOnce, groupByChannel, keptBuilds, renderChannels, type Channel, type Lang} from '../lib/releases';
+
+interface Props {
+	lang: Lang;
+}
+
+const {lang} = Astro.props;
+
+let channels: Channel[] = [];
+try {
+	channels = groupByChannel(await fetchBuildsOnce({pages: 5, token: import.meta.env.GITHUB_TOKEN}));
+} catch (error) {
+	console.warn(`[downloads] Fidorial releases not available at build time, the browser will load them: ${error}`);
+}
+
+// Embedded for the browser, which merges it with what the API returns. `<` is escaped so the JSON
+// cannot close the <script> element.
+const data = JSON.stringify(keptBuilds(channels)).replace(/</g, '\\u003c');
+---
+
+<div class="fido-dl not-content" data-lang={lang}>
+	<div class="fido-dl__content" set:html={renderChannels(channels, lang)} />
+	<script type="application/json" class="fido-dl__data" set:html={data} />
+</div>
+
+<script>
+	import {fetchBuilds, groupByChannel, keptBuilds, renderChannels, type Build, type Lang} from '../lib/releases';
+
+	const CACHE_TTL = 10 * 60 * 1000;
+	const cacheKey = (pages: number) => `fidorial-downloads-${pages}`;
+
+	// Cached per tab, so that browsing the docs does not spend the 60 anonymous API calls per hour.
+	function readCache(pages: number): Build[] | undefined {
+		try {
+			const cached = JSON.parse(sessionStorage.getItem(cacheKey(pages)) ?? 'null');
+			return cached && Date.now() - cached.at < CACHE_TTL ? cached.builds : undefined;
+		} catch {
+			return undefined;
+		}
+	}
+
+	function writeCache(pages: number, builds: Build[]) {
+		try {
+			sessionStorage.setItem(cacheKey(pages), JSON.stringify({at: Date.now(), builds}));
+		} catch {
+			// Storage full or disabled: the next page view asks GitHub again.
+		}
+	}
+
+	/**
+	 * The first page (100 releases) is enough to add the builds published since the site was built.
+	 * When the site was built without the list, every page is read, or the older branches would be
+	 * missing.
+	 */
+	async function latestBuilds(pages: number): Promise<Build[]> {
+		const cached = readCache(pages);
+		if (cached) return cached;
+		const builds = await fetchBuilds({pages});
+		writeCache(pages, builds);
+		return builds;
+	}
+
+	function setup(root: HTMLElement) {
+		const lang = (root.dataset.lang ?? 'en') as Lang;
+		const content = root.querySelector<HTMLElement>('.fido-dl__content')!;
+		const embedded: Build[] = JSON.parse(root.querySelector('.fido-dl__data')?.textContent || '[]');
+		// ?branch=dev/26.4&minecraft=26.4-snapshot-7 opens that branch and that Minecraft version.
+		const params = new URLSearchParams(location.search);
+		const selected: {channel?: string; version?: string} = {
+			channel: params.get('branch') ?? undefined,
+			version: params.get('minecraft') ?? undefined,
+		};
+
+		/** Selects `tab` in its row (branches, or Minecraft versions of a branch) and shows its panel. */
+		function activate(tab: HTMLElement) {
+			const row = [...tab.closest('[role="tablist"]')!.querySelectorAll<HTMLElement>('[role="tab"]')];
+			for (const other of row) {
+				const active = other === tab;
+				other.setAttribute('aria-selected', String(active));
+				other.tabIndex = active ? 0 : -1;
+				content.querySelector(`[id="${other.getAttribute('aria-controls')}"]`)?.classList.toggle('is-active', active);
+			}
+			tab.focus();
+
+			if (tab.dataset.channel !== undefined) {
+				selected.channel = tab.dataset.channel;
+				selected.version = undefined;
+			} else {
+				selected.channel = tab.closest<HTMLElement>('.fido-dl__panel')?.dataset.channel;
+				selected.version = tab.dataset.version;
+			}
+			const url = new URL(location.href);
+			url.searchParams.delete('branch');
+			url.searchParams.delete('minecraft');
+			if (selected.channel !== undefined) url.searchParams.set('branch', selected.channel);
+			if (selected.version !== undefined) url.searchParams.set('minecraft', selected.version);
+			history.replaceState(history.state, '', url);
+		}
+
+		content.addEventListener('click', (event) => {
+			const tab = (event.target as Element).closest<HTMLElement>('[role="tab"]');
+			if (tab) activate(tab);
+		});
+
+		content.addEventListener('keydown', (event) => {
+			const tab = (event.target as Element).closest<HTMLElement>('[role="tab"]');
+			if (!tab) return;
+			const row = [...tab.closest('[role="tablist"]')!.querySelectorAll<HTMLElement>('[role="tab"]')];
+			const current = row.indexOf(tab);
+			const next = {
+				ArrowLeft: current - 1,
+				ArrowRight: current + 1,
+				Home: 0,
+				End: row.length - 1,
+			}[event.key];
+			if (next === undefined) return;
+			event.preventDefault();
+			activate(row[(next + row.length) % row.length]);
+		});
+
+		if (embedded.length > 0 && (selected.channel || selected.version)) {
+			content.innerHTML = renderChannels(groupByChannel(embedded), lang, selected);
+		}
+		root.dataset.ready = '';
+
+		latestBuilds(embedded.length > 0 ? 1 : 5)
+			.then((latest) => {
+				// What the API returned wins; builds older than its last page come from the embedded list.
+				const oldest = latest.at(-1)?.publishedAt;
+				const older = embedded.filter((build) => !oldest || build.publishedAt < oldest);
+				const channels = groupByChannel([...latest, ...older]);
+				const ids = (builds: Build[]) => builds.map((build) => build.id).join();
+				if (ids(keptBuilds(channels)) === ids(embedded)) return;
+				content.innerHTML = renderChannels(channels, lang, selected);
+			})
+			.catch(() => {
+				// Offline or rate limited: the list rendered with the site stays.
+			});
+	}
+
+	for (const root of document.querySelectorAll<HTMLElement>('.fido-dl')) setup(root);
+</script>
+
+<style is:global>
+	.fido-dl {
+		margin-block: 1.5rem;
+	}
+
+	/* Without JavaScript: no tabs, every branch one after the other. */
+	.fido-dl__tabs {
+		display: none;
+	}
+
+	.fido-dl[data-ready] .fido-dl__tabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.4rem;
+		margin-bottom: 1rem;
+	}
+
+	.fido-dl[data-ready] .fido-dl__panel:not(.is-active),
+	.fido-dl[data-ready] .fido-dl__heading,
+	.fido-dl[data-ready] .fido-dl__group:not(.is-active),
+	.fido-dl[data-ready] .fido-dl__group-heading {
+		display: none;
+	}
+
+	.fido-dl__panel + .fido-dl__panel {
+		margin-top: 2rem;
+	}
+
+	.fido-dl__group + .fido-dl__group {
+		margin-top: 1.5rem;
+	}
+
+	.fido-dl__group-heading {
+		margin-bottom: 0.5rem;
+		font-size: var(--sl-text-sm);
+		color: var(--sl-color-gray-3);
+	}
+
+	.fido-dl__group-heading strong {
+		color: var(--sl-color-white);
+	}
+
+	/* Minecraft versions of a branch: a second, lighter row of tabs. */
+	.fido-dl__versions {
+		display: none;
+	}
+
+	.fido-dl[data-ready] .fido-dl__versions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem 0.75rem;
+		margin-bottom: 1rem;
+	}
+
+	.fido-dl__versions-label {
+		font-size: var(--sl-text-xs);
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--sl-color-gray-3);
+	}
+
+	.fido-dl__subtabs {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.3rem;
+	}
+
+	.fido-dl__subtabs [role='tab'] {
+		font: inherit;
+		font-size: var(--sl-text-sm);
+		padding: 0.2rem 0.7rem;
+		border-radius: 0.5rem;
+		border: 1px solid transparent;
+		background: none;
+		color: var(--sl-color-gray-2);
+		cursor: pointer;
+		transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+	}
+
+	.fido-dl__subtabs [role='tab']:hover {
+		color: var(--sl-color-white);
+		border-color: var(--sl-color-gray-5);
+	}
+
+	.fido-dl__subtabs [role='tab'][aria-selected='true'] {
+		background: var(--fido-violet-soft);
+		border-color: var(--fido-violet);
+		color: var(--sl-color-white);
+		font-weight: 650;
+	}
+
+	.fido-dl__tabs [role='tab'] {
+		font: inherit;
+		font-family: var(--__sl-font-mono);
+		font-size: var(--sl-text-sm);
+		padding: 0.35rem 0.9rem;
+		border-radius: 999px;
+		border: 1px solid var(--sl-color-gray-5);
+		background: var(--fido-surface);
+		color: var(--sl-color-gray-2);
+		cursor: pointer;
+		transition: border-color 0.15s ease, color 0.15s ease, background-color 0.15s ease;
+	}
+
+	.fido-dl__tabs [role='tab']:hover {
+		border-color: var(--fido-violet);
+		color: var(--sl-color-white);
+	}
+
+	.fido-dl__tabs [role='tab'][aria-selected='true'] {
+		background: var(--fido-violet);
+		border-color: var(--fido-violet);
+		color: var(--sl-color-text-invert, #1f1b24);
+		font-weight: 650;
+	}
+
+	:root:not([data-theme='light']) .fido-dl__tabs [role='tab'][aria-selected='true'] {
+		color: #1f1b24;
+	}
+
+	.fido-dl__heading {
+		margin-bottom: 0.5rem;
+		color: var(--sl-color-gray-3);
+	}
+
+	.fido-dl__heading strong {
+		font-family: var(--__sl-font-mono);
+		color: var(--sl-color-white);
+	}
+
+	.fido-dl__latest {
+		position: relative;
+		padding: 1.25rem 1.4rem;
+		border: 1px solid var(--sl-color-gray-5);
+		border-radius: 1rem;
+		background: var(--fido-surface);
+		overflow: hidden;
+	}
+
+	.fido-dl__latest::before {
+		content: '';
+		position: absolute;
+		inset-block: 0;
+		inset-inline-start: 0;
+		width: 4px;
+		background: linear-gradient(180deg, var(--fido-rose), var(--fido-violet));
+	}
+
+	.fido-dl__eyebrow {
+		margin: 0;
+		font-size: var(--sl-text-xs);
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--fido-rose);
+	}
+
+	.fido-dl__version {
+		margin: 0.2rem 0 1rem;
+		font-size: var(--sl-text-xl);
+		overflow-wrap: anywhere;
+	}
+
+	.fido-dl .fido-dl__version code {
+		padding: 0;
+		border: 0;
+		background: none;
+		font-size: 1em;
+		color: var(--sl-color-white);
+	}
+
+	.fido-dl__cta {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.6rem 1rem;
+	}
+
+	.fido-dl .fido-dl__file {
+		min-width: 0;
+		overflow-wrap: anywhere;
+		color: var(--sl-color-gray-2);
+	}
+
+	.fido-dl__button {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.5rem;
+		flex-shrink: 0;
+		padding: 0.65rem 1.3rem;
+		border-radius: 999px;
+		background: var(--fido-violet);
+		color: #ffffff;
+		font-weight: 650;
+		text-decoration: none;
+		white-space: nowrap;
+		transition: background-color 0.15s ease;
+	}
+
+	:root:not([data-theme='light']) .fido-dl__button {
+		color: #1f1b24;
+	}
+
+	.fido-dl__button:hover {
+		background: var(--fido-rose);
+		color: #ffffff;
+	}
+
+	:root:not([data-theme='light']) .fido-dl__button:hover {
+		color: #1f1b24;
+	}
+
+	.fido-dl__button .fido-dl__size {
+		opacity: 0.75;
+		font-weight: 500;
+	}
+
+	.fido-dl__facts {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.75rem 2.5rem;
+		margin: 1.25rem 0 0;
+	}
+
+	.fido-dl__facts .fido-dl__wide {
+		flex-basis: 100%;
+	}
+
+	.fido-dl__facts dt {
+		font-size: var(--sl-text-xs);
+		color: var(--sl-color-gray-3);
+	}
+
+	.fido-dl__facts dd {
+		margin: 0.1rem 0 0;
+		overflow-wrap: anywhere;
+		color: var(--sl-color-white);
+	}
+
+	.fido-dl__facts div:not(.fido-dl__wide) dd {
+		white-space: nowrap;
+	}
+
+	.fido-dl code {
+		font-family: var(--__sl-font-mono);
+		font-size: 0.875em;
+	}
+
+	.fido-dl a:not(.fido-dl__button) {
+		color: var(--sl-color-text-accent);
+		text-decoration-color: var(--fido-link-underline);
+		text-underline-offset: 0.2em;
+	}
+
+	.fido-dl a:not(.fido-dl__button):hover {
+		color: var(--fido-rose);
+	}
+
+	.fido-dl__others {
+		margin: 1rem 0 0;
+		font-size: var(--sl-text-sm);
+		color: var(--sl-color-gray-3);
+		overflow-wrap: anywhere;
+	}
+
+	.fido-dl__history {
+		margin-top: 1rem;
+		border: 1px solid var(--sl-color-gray-5);
+		border-radius: 0.8rem;
+	}
+
+	.fido-dl__history summary {
+		padding: 0.7rem 1rem;
+		cursor: pointer;
+		font-weight: 650;
+		color: var(--sl-color-white);
+	}
+
+	.fido-dl__history summary:hover {
+		color: var(--fido-rose);
+	}
+
+	.fido-dl__table {
+		overflow-x: auto;
+		border-top: 1px solid var(--sl-color-gray-5);
+	}
+
+	.fido-dl__table table {
+		width: 100%;
+		border-collapse: collapse;
+		font-size: var(--sl-text-sm);
+	}
+
+	.fido-dl__table th,
+	.fido-dl__table td {
+		padding: 0.5rem 1rem;
+		text-align: start;
+		white-space: nowrap;
+		border-bottom: 1px solid var(--sl-color-hairline-light);
+	}
+
+	.fido-dl__table th {
+		background: var(--fido-violet-soft);
+		color: var(--sl-color-white);
+		font-weight: 650;
+	}
+
+	.fido-dl__table tbody tr:last-child td {
+		border-bottom: 0;
+	}
+
+	.fido-dl__table tbody tr:nth-child(even) {
+		background: var(--sl-color-gray-7);
+	}
+
+	.fido-dl__table .fido-dl__size {
+		color: var(--sl-color-gray-3);
+	}
+
+	.fido-dl__source,
+	.fido-dl__empty {
+		margin-top: 1rem;
+		font-size: var(--sl-text-sm);
+		color: var(--sl-color-gray-3);
+	}
+</style>
