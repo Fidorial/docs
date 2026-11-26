@@ -19,5 +19,8 @@
   },
   "allowScripts": {
     "esbuild": true
+  },
+  "overrides": {
+    "@astrojs/compiler-binding": "0.5.2"
   }
 }
