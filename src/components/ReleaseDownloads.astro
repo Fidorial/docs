@@ -5,9 +5,14 @@
  *   <ReleaseDownloads lang="en" />
  *
  * The list is rendered when the site is built, then refreshed in the browser from the GitHub API, so
- * builds published after the last deployment still show up. Set GITHUB_TOKEN when building to avoid
- * the API's anonymous rate limit; if GitHub cannot be reached, the page is built without the list and
- * the browser loads it. The parsing and the HTML live in src/lib/releases.ts.
+ * builds published after the last deployment still show up. Each build lists the commits it adds to
+ * the previous one of its branch, read from the commit history: up to 8 pages of 100 commits per
+ * branch when the site is built, then one page per branch in the browser, only for the builds that
+ * do not have their commits yet (in practice, the ones published since).
+ * Set GITHUB_TOKEN when building to avoid the API's anonymous rate limit: 60 calls an hour, of which
+ * the site needs up to 5 for the releases plus 8 per branch for the commits (about 15 in Nov. 2026).
+ * If GitHub cannot be reached, the page is built without the list and the browser loads it. The
+ * parsing and the HTML live in src/lib/releases.ts.
  */
 import {fetchBuildsOnce, groupByChannel, keptBuilds, renderChannels, type Channel, type Lang} from '../lib/releases';
 
@@ -19,7 +24,7 @@ const {lang} = Astro.props;
 
 let channels: Channel[] = [];
 try {
-	channels = groupByChannel(await fetchBuildsOnce({pages: 5, token: import.meta.env.GITHUB_TOKEN}));
+	channels = groupByChannel(await fetchBuildsOnce({pages: 5, commitPages: 8, token: import.meta.env.GITHUB_TOKEN}));
 } catch (error) {
 	console.warn(`[downloads] Fidorial releases not available at build time, the browser will load them: ${error}`);
 }
@@ -35,10 +40,20 @@ const data = JSON.stringify(keptBuilds(channels)).replace(/</g, '\\u003c');
 </div>
 
 <script>
-	import {fetchBuilds, groupByChannel, keptBuilds, renderChannels, type Build, type Lang} from '../lib/releases';
+	import {
+		addChanges,
+		copyChanges,
+		fetchBuilds,
+		groupByChannel,
+		keptBuilds,
+		renderChannels,
+		type Build,
+		type Lang,
+	} from '../lib/releases';
 
 	const CACHE_TTL = 10 * 60 * 1000;
-	const cacheKey = (pages: number) => `fidorial-downloads-${pages}`;
+	// v2: the whole list with its commits, where v1 held the releases alone.
+	const cacheKey = (pages: number) => `fidorial-downloads-v2-${pages}`;
 
 	// Cached per tab, so that browsing the docs does not spend the 60 anonymous API calls per hour.
 	function readCache(pages: number): Build[] | undefined {
@@ -59,16 +74,29 @@ const data = JSON.stringify(keptBuilds(channels)).replace(/</g, '\\u003c');
 	}
 
 	/**
-	 * The first page (100 releases) is enough to add the builds published since the site was built.
-	 * When the site was built without the list, every page is read, or the older branches would be
-	 * missing.
+	 * The builds as GitHub lists them now, with their commits. `show` is called once the releases are
+	 * read, then again once the commits of the new builds are. The first page (100 releases) is enough
+	 * to add the builds published since the site was built; when the site was built without the list,
+	 * every page is read, or the older branches would be missing.
 	 */
-	async function latestBuilds(pages: number): Promise<Build[]> {
+	async function refresh(embedded: Build[], show: (builds: Build[]) => void): Promise<void> {
+		const pages = embedded.length > 0 ? 1 : 5;
 		const cached = readCache(pages);
-		if (cached) return cached;
-		const builds = await fetchBuilds({pages});
+		if (cached) return show(cached);
+
+		const latest = await fetchBuilds({pages});
+		// What the API returned wins; builds older than its last page come from the embedded list.
+		const oldest = latest.at(-1)?.publishedAt;
+		const older = embedded.filter((build) => !oldest || build.publishedAt < oldest);
+		// The commits read when the site was built are kept: only the builds published since are read.
+		const known = new Map(embedded.map((build) => [build.id, build]));
+		for (const build of latest) copyChanges(known.get(build.id), build);
+		const builds = [...latest, ...older];
+		show(builds);
+
+		await addChanges(builds, keptBuilds(groupByChannel(builds)), {pages: 1});
 		writeCache(pages, builds);
-		return builds;
+		show(builds);
 	}
 
 	function setup(root: HTMLElement) {
@@ -134,19 +162,20 @@ const data = JSON.stringify(keptBuilds(channels)).replace(/</g, '\\u003c');
 		}
 		root.dataset.ready = '';
 
-		latestBuilds(embedded.length > 0 ? 1 : 5)
-			.then((latest) => {
-				// What the API returned wins; builds older than its last page come from the embedded list.
-				const oldest = latest.at(-1)?.publishedAt;
-				const older = embedded.filter((build) => !oldest || build.publishedAt < oldest);
-				const channels = groupByChannel([...latest, ...older]);
-				const ids = (builds: Build[]) => builds.map((build) => build.id).join();
-				if (ids(keptBuilds(channels)) === ids(embedded)) return;
-				content.innerHTML = renderChannels(channels, lang, selected);
-			})
-			.catch(() => {
-				// Offline or rate limited: the list rendered with the site stays.
-			});
+		// Rendered again only when a build or its commits changed, so that an open history stays open.
+		const state = (builds: Build[]) => builds.map((build) => `${build.id}:${build.changes?.length ?? 0}`).join();
+		let shown = state(embedded);
+		const show = (builds: Build[]) => {
+			const channels = groupByChannel(builds);
+			const next = state(keptBuilds(channels));
+			if (next === shown) return;
+			shown = next;
+			content.innerHTML = renderChannels(channels, lang, selected);
+		};
+
+		refresh(embedded, show).catch(() => {
+			// Offline or rate limited: the list rendered with the site stays.
+		});
 	}
 
 	for (const root of document.querySelectorAll<HTMLElement>('.fido-dl')) setup(root);
@@ -412,6 +441,74 @@ const data = JSON.stringify(keptBuilds(channels)).replace(/</g, '\\u003c');
 		color: var(--fido-rose);
 	}
 
+	.fido-dl__changes {
+		margin-top: 1.25rem;
+		padding-top: 1rem;
+		border-top: 1px solid var(--sl-color-hairline-light);
+	}
+
+	.fido-dl__changes-title {
+		margin: 0 0 0.5rem;
+		font-size: var(--sl-text-xs);
+		color: var(--sl-color-gray-3);
+	}
+
+	.fido-dl__commits {
+		display: grid;
+		gap: 0.35rem;
+		margin: 0;
+		padding: 0;
+		list-style: none;
+		font-size: var(--sl-text-sm);
+	}
+
+	.fido-dl__commits li {
+		display: flex;
+		align-items: baseline;
+		gap: 0.6rem;
+		margin: 0;
+	}
+
+	.fido-dl__commits li > a {
+		flex-shrink: 0;
+	}
+
+	.fido-dl__commit-title {
+		min-width: 0;
+		overflow-wrap: anywhere;
+		color: var(--sl-color-white);
+	}
+
+	.fido-dl__more {
+		display: inline-block;
+		margin-top: 0.5rem;
+		font-size: var(--sl-text-sm);
+	}
+
+	/* Previous builds: the commits of a build on a second row, under its date and file. */
+	.fido-dl__table .fido-dl__changes-row td {
+		padding-top: 0;
+		white-space: normal;
+	}
+
+	.fido-dl__table tbody > tr:not(:last-child) > td {
+		border-bottom: 0;
+	}
+
+	.fido-dl__table .fido-dl__commits {
+		gap: 0.2rem;
+		font-size: inherit;
+	}
+
+	.fido-dl__table .fido-dl__commit-title {
+		color: var(--sl-color-gray-2);
+	}
+
+	.fido-dl__table .fido-dl__more {
+		margin-top: 0.2rem;
+		font-size: inherit;
+	}
+
 	.fido-dl__others {
 		margin: 1rem 0 0;
 		font-size: var(--sl-text-sm);
@@ -461,11 +558,11 @@ const data = JSON.stringify(keptBuilds(channels)).replace(/</g, '\\u003c');
 		font-weight: 650;
 	}
 
-	.fido-dl__table tbody tr:last-child td {
+	.fido-dl__table tbody:last-child tr:last-child td {
 		border-bottom: 0;
 	}
 
-	.fido-dl__table tbody tr:nth-child(even) {
+	.fido-dl__table tbody:nth-of-type(even) {
 		background: var(--sl-color-gray-7);
 	}
 
