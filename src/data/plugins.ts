@@ -62,6 +62,17 @@ export const plugins: FidorialPlugin[] = [
             fr: 'Commande : /flaref (alias /flare), permission airplane.flare (opérateurs par défaut). Renseigne ton token et l’URL du backend dans plugins/flare/config.yml.',
         },
     },
+    {
+        id: 'vaultunlocked',
+        name: 'VaultUnlocked',
+        repository: 'https://github.com/TheNewEconomy/VaultUnlocked-Fidorial',
+        authors: ['creatorfromhell'],
+        support: 'official',
+        description: {
+            en: 'VaultUnlocked is a versatile API designed to streamline the integration of permissions, chat, and economy systems for plugins.',
+            fr: 'VaultUnlocked est une API polyvalente conçue pour simplifier l\'intégration des systèmes d\'autorisations, de chat et d\'économie pour les plugins.',
+        },
+    },
 
     // ── Unofficial, temporary ports ─────────────────────────────────────────────────────
     {

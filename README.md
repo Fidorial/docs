@@ -1,6 +1,6 @@
 # Fidorial documentation
 
-Sources of [docs.fidorial.moe](https://docs.fidorial.moe), built with
+Sources of [www.fidorial.moe](https://www.fidorial.moe), built with
 [Astro](https://astro.build) and [Starlight](https://starlight.astro.build).
 
 - Main site: [www.fidorial.moe](https://www.fidorial.moe)
