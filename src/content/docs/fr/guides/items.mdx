@@ -11,10 +11,10 @@ Un `ItemStack` est un record **immuable** : un identifiant d'item, une quantité
 components** (nom personnalisé, lore, durabilité…). Chaque « modification » renvoie une nouvelle pile.
 
 ```java
-final ItemStack diamants = ItemStack.of(ItemKeys.DIAMOND.key(), 16);
-final ItemStack pomme = ItemStack.of(Key.key("apple"));     // quantité 1
+final ItemStack diamants = ItemStack.of(ItemKeys.DIAMOND, 16);
+final ItemStack pomme = ItemStack.of(TypedKey.withRegistry(RegistryKey.ITEM, Key.key("apple"))); // quantité 1
 
-final ItemStack epee = ItemStack.builder(ItemKeys.NETHERITE_SWORD.key())
+final ItemStack epee = ItemStack.builder(ItemKeys.NETHERITE_SWORD)
         .set(DataComponentTypes.CUSTOM_NAME, Component.text("Croc de Fidorial", NamedTextColor.LIGHT_PURPLE)
                 .decoration(TextDecoration.ITALIC, false))
         .set(DataComponentTypes.LORE, ItemLore.of(
@@ -80,9 +80,9 @@ player.execute(() -> {
 
     final int libre = inventaire.firstEmpty();        // -1 si plein
     if (libre >= 0) {
-        inventaire.set(libre, ItemStack.of(ItemKeys.BREAD.key(), 8));
+        inventaire.set(libre, ItemStack.of(ItemKeys.BREAD, 8));
     }
-    inventaire.set(PlayerInventory.HEAD, ItemStack.of(ItemKeys.GOLDEN_HELMET.key()));
+    inventaire.set(PlayerInventory.HEAD, ItemStack.of(ItemKeys.GOLDEN_HELMET));
 
     player.updateInventory();                         // envoyer les changements au client
 });
@@ -115,7 +115,7 @@ Par exemple, une « baguette de téléportation » :
 ```java
 ctx.events().subscribe(PlayerUseItemEvent.class, event -> {
     final ItemStack item = event.item();
-    if (!item.id().equals(ItemKeys.BLAZE_ROD.key())
+    if (!item.id().equals(ItemKeys.BLAZE_ROD)
             || !Component.text("Baguette").equals(item.get(DataComponentTypes.CUSTOM_NAME))) {
         return;
     }

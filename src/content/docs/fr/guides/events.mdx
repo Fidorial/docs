@@ -28,7 +28,7 @@ Si l'événement est annulé, le serveur ne fait pas l'action :
 
 ```java
 ctx.events().subscribe(BlockBreakEvent.class, EventPriority.HIGH, event -> {
-    if (event.position().y() < 0) {
+    if (event.position().blockY() < 0) {
         event.setCancelled(true);
         event.player().sendMessage(Component.text("Pas sous la couche 0 !", NamedTextColor.RED));
     }
@@ -169,14 +169,24 @@ Tous les événements sont dans `fr.fidorial.event` et ses sous-packages.
 | `player.PlayerQuitEvent` | | un joueur quitte le monde. |
 | `player.PlayerChatEvent` | ✔ | un joueur envoie un message, avant sa diffusion. |
 | `player.PlayerSignedChatEvent` | ✔ | idem, pour un message signé par le client (sous-type du précédent). |
+| `player.PlayerInputEvent` | | les touches de déplacement du joueur changent. |
+| `player.PlayerSwingEvent` | ✔ | un joueur balance son bras. |
+| `player.PlayerUseItemEvent` | ✔ | un joueur utilise un item en main. |
+| `player.PlayerDropItemEvent` | ✔ | un joueur jette un item. |
+| `player.PlayerPickupItemEvent` | ✔ | un joueur va ramasser un item au sol. |
+| `player.PlayerSwapHandItemsEvent` | ✔ | un joueur échange les items entre ses mains. |
+| `player.PlayerItemHeldEvent` | ✔ | un joueur choisit un autre slot de la hotbar. |
+| `player.PlayerOpenInventoryEvent` | ✔ | une fenêtre s'ouvre au-dessus de l'inventaire du joueur (ender chest compris). |
+| `player.PlayerPrepareCraftEvent` | | une grille d'artisanat change et son résultat est préparé. |
+| `player.PlayerCraftItemEvent` | ✔ | un joueur prend le résultat de l'artisanat. |
+| `player.PlayerCreateMapEvent` | ✔ | un joueur utilise une carte vierge, avant sa création. |
 | `block.BlockBreakEvent` | ✔ | un joueur casse un bloc, avant qu'il soit retiré. |
 | `block.BlockPlaceEvent` | ✔ | un joueur pose un bloc, avant qu'il soit écrit dans le monde. |
 | `player.PlayerAttackEntityEvent` | ✔ | un joueur frappe une entité, avant les dégâts. |
 | `entity.EntityDamageEvent` | ✔ | une entité va subir des dégâts, avant armure et knockback. |
 | `entity.EntityDeathEvent` | | une entité meurt. |
-| `player.PlayerDeathEvent` | | un joueur meurt (sous-type du précédent). |
+| `player.PlayerDeathEvent` | | un joueur meurt (sous-type du précédent) ; tu peux changer le message de mort et garder ou non l'inventaire. |
 | `player.PlayerRespawnEvent` | | un joueur mort clique sur « Réapparaître ». |
-| `player.PlayerOpenEnderChestEvent` | ✔ | un joueur va ouvrir un ender chest. |
 | `player.PlayerDialogActionEvent` | | un joueur clique sur un bouton de dialogue à action personnalisée. |
 | `player.PlayerPostEffectsModifyEvent` | ✔ | les post-effets d'un joueur vont changer. |
 
